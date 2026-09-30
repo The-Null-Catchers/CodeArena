@@ -140,8 +140,20 @@ export class DockerBackend implements ExecutionBackend {
       compileOutput = "";
     let exitCode: number | null = null;
     let imageId = "";
+    let phase = "image";
     const stop = (why: Verdict) => {
-      reason ??= why;
+      if (reason) return;
+      reason = why;
+      console.error(
+        JSON.stringify({
+          service: "sandbox",
+          phase,
+          submission_id: labels["codearena.submission"],
+          worker_id: labels["codearena.worker"],
+          verdict: why,
+          elapsed_ms: Date.now() - started,
+        }),
+      );
       void container?.kill().catch(() => {});
     };
     const abort = () => stop("internal_error");
@@ -150,6 +162,7 @@ export class DockerBackend implements ExecutionBackend {
       if (signal.aborted) throw new Error("CANCELLED");
       const img = await this.docker.getImage(runtimeImage(r)).inspect();
       imageId = img.Id;
+      phase = "create";
       container = await this.docker.createContainer(
         containerOptions(imageId, limits, labels, process.env.SANDBOX_APPARMOR),
       );
@@ -157,10 +170,12 @@ export class DockerBackend implements ExecutionBackend {
         () => stop("time_limit_exceeded"),
         Math.max(1, limits.wallTimeMs - (Date.now() - started)),
       );
+      phase = "start";
       await container.start();
       if (signal.aborted || reason) throw new Error("INTERRUPTED");
       // Docker archive API rejects a read-only rootfs on some daemons even for tmpfs.
       // A fixed tar process writes only registry-owned filenames into the private tmpfs.
+      phase = "upload-create";
       const upload = await container.exec({
         AttachStdin: true,
         AttachStdout: true,
@@ -169,6 +184,7 @@ export class DockerBackend implements ExecutionBackend {
         WorkingDir: "/workspace",
         Cmd: ["tar", "--no-same-owner", "-xf", "-", "-C", "/workspace"],
       });
+      phase = "upload-start";
       const uploadStream = await upload.start({ hijack: true, stdin: true });
       uploadStream.resume();
       const uploaded = new Promise<void>((resolve, reject) => {
@@ -179,7 +195,9 @@ export class DockerBackend implements ExecutionBackend {
       const pack = archive({ [r.sourceFile]: source, "stdin.txt": stdin });
       pack.once("error", (error) => uploadStream.destroy(error));
       pack.pipe(uploadStream);
+      phase = "upload-stream";
       await uploaded;
+      phase = "upload-inspect";
       if ((await upload.inspect()).ExitCode !== 0)
         throw new Error("SOURCE_UPLOAD_FAILED");
       sampler = setInterval(() => {
@@ -204,6 +222,7 @@ export class DockerBackend implements ExecutionBackend {
           });
       }, 50);
       const stage = async (argv: string[], compiling: boolean) => {
+        phase = compiling ? "compile-create" : "run-create";
         const exec = await container!.exec({
           AttachStdout: true,
           AttachStderr: true,
@@ -216,6 +235,7 @@ export class DockerBackend implements ExecutionBackend {
             `exec ${argv.map(quote).join(" ")} < /workspace/stdin.txt`,
           ],
         });
+        phase = compiling ? "compile-start" : "run-start";
         const stream = await exec.start({ hijack: true, stdin: false });
         const collect = (kind: string, value: string) => {
           if (value) {
@@ -234,6 +254,7 @@ export class DockerBackend implements ExecutionBackend {
               done();
             },
           });
+        phase = compiling ? "compile-stream" : "run-stream";
         this.docker.modem.demuxStream(stream, sink("stdout"), sink("stderr"));
         await new Promise<void>((resolve, reject) => {
           stream.on("end", resolve);
@@ -269,6 +290,18 @@ export class DockerBackend implements ExecutionBackend {
         imageId,
       };
     } catch (error) {
+      console.error(
+        JSON.stringify({
+          service: "sandbox",
+          phase,
+          submission_id: labels["codearena.submission"],
+          worker_id: labels["codearena.worker"],
+          verdict: reason,
+          elapsed_ms: Date.now() - started,
+          error:
+            error instanceof Error ? error.message : "UNKNOWN_SANDBOX_ERROR",
+        }),
+      );
       if (!reason && !signal.aborted) throw error;
       return {
         stdout,

@@ -1,0 +1,13 @@
+# Two independent worker identities on one development daemon.
+# Reserve both workers' memory when sizing the host; production hosts should be dedicated.
+services:
+  worker:
+    environment:
+      WORKER_SLOTS: 1
+  worker-02:
+    extends:
+      file: docker-compose.yml
+      service: worker
+    environment:
+      WORKER_ID: worker-02
+      WORKER_SLOTS: 1
