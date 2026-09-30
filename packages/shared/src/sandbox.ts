@@ -159,13 +159,29 @@ export class DockerBackend implements ExecutionBackend {
       );
       await container.start();
       if (signal.aborted || reason) throw new Error("INTERRUPTED");
-      await container.putArchive(
-        archive({
-          [r.sourceFile]: source,
-          "stdin.txt": stdin,
-        }) as unknown as NodeJS.ReadableStream,
-        { path: "/workspace" },
-      );
+      // Docker archive API rejects a read-only rootfs on some daemons even for tmpfs.
+      // A fixed tar process writes only registry-owned filenames into the private tmpfs.
+      const upload = await container.exec({
+        AttachStdin: true,
+        AttachStdout: true,
+        AttachStderr: true,
+        User: "65532:65532",
+        WorkingDir: "/workspace",
+        Cmd: ["tar", "--no-same-owner", "-xf", "-", "-C", "/workspace"],
+      });
+      const uploadStream = await upload.start({ hijack: true, stdin: true });
+      uploadStream.resume();
+      const uploaded = new Promise<void>((resolve, reject) => {
+        uploadStream.once("end", resolve);
+        uploadStream.once("close", resolve);
+        uploadStream.once("error", reject);
+      });
+      const pack = archive({ [r.sourceFile]: source, "stdin.txt": stdin });
+      pack.once("error", (error) => uploadStream.destroy(error));
+      pack.pipe(uploadStream);
+      await uploaded;
+      if ((await upload.inspect()).ExitCode !== 0)
+        throw new Error("SOURCE_UPLOAD_FAILED");
       sampler = setInterval(() => {
         if (sampling) return;
         sampling = true;

@@ -54,7 +54,7 @@ The domain module contains the complete transition table, including cancellation
 flowchart TD
   R["Registry-owned runtime + argv"] --> I["Resolve local image identity"]
   I --> C["Create non-root restricted container"]
-  C --> T["Upload source/stdin as tar bytes"]
+  C --> T["Stream source/stdin as tar bytes"]
   T --> B{"Compilation required?"}
   B --> X["Compile with predefined argv"]
   B --> E["Execute with predefined argv"]
@@ -64,7 +64,7 @@ flowchart TD
   J --> F["Remove container and tmpfs"]
 ```
 
-Each test receives a fresh container and workspace. The adapter accepts no user-selected images, shell options, paths, or environment variables. Source and stdin are file bytes; only predefined registry argv is shell-quoted to attach stdin. NetworkMode=none and NetworkDisabled isolate runtime network namespaces, including platform services and metadata addresses. A read-only image plus tmpfs limits writable storage without host bind mounts.
+Each test receives a fresh container and workspace. The adapter accepts no user-selected images, shell options, paths, or environment variables. Source and stdin are tar bytes streamed into a fixed non-root tar process in the private tmpfs; only predefined registry argv is shell-quoted to attach stdin. NetworkMode=none and NetworkDisabled isolate runtime network namespaces, including platform services and metadata addresses. A read-only image plus tmpfs limits writable storage without host bind mounts.
 
 ExecutionBackend is the replaceable boundary for future gVisor, Kubernetes jobs, microVM, and remote worker implementations. Those alternatives are not implemented.
 

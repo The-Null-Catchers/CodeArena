@@ -45,3 +45,7 @@ Back up PostgreSQL, encrypted-secret key material, and configuration. Test resto
 ## Release process
 
 Run all gates in VERIFICATION.md, build immutable images, review dependencies, configure main branch protection, and stage a real multi-worker deployment. No remote repository, production deployment, or branch protection was created by the source archive. Do not claim CI passed before the actual run completes.
+
+## Object-store image provenance
+
+MinIO is built locally from upstream commit `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` (RELEASE.2025-10-15T17-29-55Z), with source identity verified during the build. Its upstream AGPL license is included in the image. This removes reliance on unavailable Docker Hub images. Review upstream licensing before redistribution. Core execution CI starts only the services required for execution; object-storage build qualification remains separate because there is no artifact API yet.
