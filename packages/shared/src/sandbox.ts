@@ -67,7 +67,7 @@ export function containerOptions(
       NanoCpus: 1_000_000_000,
       ShmSize: 1024 * 1024,
       Tmpfs: {
-        "/workspace": `rw,nosuid,nodev,size=${limits.maxFileSizeKb}k,uid=65532,gid=65532,mode=0700`,
+        "/workspace": `rw,exec,nosuid,nodev,size=${limits.maxFileSizeKb}k,uid=65532,gid=65532,mode=0700`,
         "/tmp": "rw,noexec,nosuid,nodev,size=1m,uid=65532,gid=65532,mode=0700",
       },
       Ulimits: [

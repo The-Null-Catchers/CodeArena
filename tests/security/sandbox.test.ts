@@ -39,6 +39,23 @@ describe("real Docker security boundaries (no mocks)", () => {
     );
     expect(s.stdout).toBe("$(touch /workspace/injected); `id`; $HOME\nFalse\n");
   });
+  it("enforces the writable filesystem quota", async () => {
+    const s = await run(
+      "import os\ntry:\n with open('/workspace/fill', 'wb') as f:\n  for _ in range(64): f.write(b'x' * 65536)\n print('unbounded')\nexcept OSError: print('filesystem-limit')",
+      { maxFileSizeKb: 1024 },
+    );
+    expect(s.stdout).toBe("filesystem-limit\n");
+  });
+  it("caps multibyte UTF-8 output without corrupting streamed characters", async () => {
+    const s = await run("while True: print('🔥' * 1024, flush=True)", {
+      maxOutputKb: 4,
+    });
+    expect(s.outputTruncated).toBe(true);
+    expect(
+      Buffer.byteLength(s.stdout) + Buffer.byteLength(s.stderr),
+    ).toBeLessThanOrEqual(4096);
+    expect(s.stdout).not.toContain("�");
+  });
   it("never inherits platform secrets", async () => {
     process.env.CODEARENA_TEST_SECRET = "DO_NOT_LEAK";
     const s = await run(

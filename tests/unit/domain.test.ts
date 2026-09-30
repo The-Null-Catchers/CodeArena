@@ -115,6 +115,8 @@ describe("sandbox policy", () => {
     expect(c.HostConfig?.PidsLimit).toBe(32);
     expect(c.HostConfig?.NanoCpus).toBe(1e9);
     expect(c.HostConfig?.Tmpfs?.["/workspace"]).toContain("size=10240k");
+    expect(c.HostConfig?.Tmpfs?.["/workspace"]).toContain(",exec,");
+    expect(c.HostConfig?.Tmpfs?.["/tmp"]).toContain(",noexec,");
   });
 });
 
