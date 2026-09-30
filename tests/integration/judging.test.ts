@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import pg from "pg";
+import { readFile } from "node:fs/promises";
 import { limitedFetch } from "./http.js";
 const base = process.env.API_URL || "http://localhost:4000";
 const db = new pg.Pool({
@@ -111,6 +112,90 @@ afterAll(async () => {
   await db.end();
 });
 describe("immutable judging admission through the real execution stack", () => {
+  it("upgrades historical result foreign keys and labels legacy definitions honestly", async () => {
+    const client = await db.connect();
+    const schema = `upgrade_${crypto.randomUUID().replaceAll("-", "")}`;
+    try {
+      await client.query("BEGIN");
+      // A transactional schema isolates the old-release fixture from the live API.
+      await client.query(`CREATE SCHEMA ${schema}`);
+      await client.query(`SET LOCAL search_path TO ${schema},public`);
+      for (const name of [
+        "001_core.sql",
+        "002_email.sql",
+        "003_execution_policy.sql",
+      ])
+        await client.query(
+          await readFile(`packages/db/migrations/${name}`, "utf8"),
+        );
+      await client.query(
+        "INSERT INTO runtimes(id,language,version,image) VALUES('python:3.13','python','3.13','probe')",
+      );
+      const organization = (
+        await client.query(
+          "INSERT INTO organizations(name) VALUES('legacy') RETURNING id",
+        )
+      ).rows[0].id;
+      const project = (
+        await client.query(
+          "INSERT INTO projects(organization_id,name) VALUES($1,'legacy') RETURNING id",
+          [organization],
+        )
+      ).rows[0].id;
+      const challenge = (
+        await client.query(
+          "INSERT INTO challenges(title,slug,description,difficulty) VALUES('legacy','legacy','fixture','easy') RETURNING id",
+        )
+      ).rows[0].id;
+      const test = (
+        await client.query(
+          "INSERT INTO challenge_test_cases(challenge_id,position,stdin,expected) VALUES($1,0,'private fixture','expected fixture') RETURNING id",
+          [challenge],
+        )
+      ).rows[0].id;
+      const submission = (
+        await client.query(
+          "INSERT INTO submissions(project_id,runtime_id,challenge_id,source,stdin,mode,limits,state) VALUES($1,'python:3.13',$2,'fixture','','challenge','{}','completed') RETURNING id",
+          [project, challenge],
+        )
+      ).rows[0].id;
+      await client.query(
+        "INSERT INTO test_results(submission_id,test_case_id,verdict,wall_ms,peak_memory_bytes) VALUES($1,$2,'accepted',1,0)",
+        [submission, test],
+      );
+      await client.query(
+        await readFile(
+          "packages/db/migrations/004_judging_snapshots.sql",
+          "utf8",
+        ),
+      );
+      expect(
+        (
+          await client.query(
+            "SELECT test_snapshot_origin,test_snapshot_hash FROM submissions WHERE id=$1",
+            [submission],
+          )
+        ).rows[0],
+      ).toEqual({
+        test_snapshot_origin: "legacy-backfill",
+        test_snapshot_hash: null,
+      });
+      await client.query("DELETE FROM challenge_test_cases WHERE id=$1", [
+        test,
+      ]);
+      expect(
+        (
+          await client.query(
+            "SELECT t.verdict,c.expected FROM test_results t JOIN submission_test_cases c USING(submission_id,test_case_id) WHERE t.submission_id=$1",
+            [submission],
+          )
+        ).rows,
+      ).toEqual([{ verdict: "accepted", expected: "expected fixture" }]);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+  });
   it("advertises and enforces challenge language restrictions server-side", async () => {
     expect((await request(`/v1/challenges/${slug}`)).data.languages).toEqual([
       "python",

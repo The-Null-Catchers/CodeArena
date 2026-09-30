@@ -6,6 +6,10 @@ Bounded Redis commands, independent BullMQ worker connections, database cancella
 
 GitHub Actions run [36751926401](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36751926401), commit `1ff4ec421c6eb0856173f93ab8c0474dfd42e9d4`, passed all three jobs, including the live Redis outage scenario and three dedicated Redis probes. Total: **77 tests passed** (30 unit, 12 sandbox security, 28 integration, one Chromium, three fleet, three Redis). Extended outages, Redis data loss and sustained load remain separate release gates.
 
+## Judging snapshots awaiting final workflow verification
+
+Migration 004, atomic admission captures, SQL immutability guards and optional challenge language restrictions are implemented. Five new integration tests cover an isolated old-schema upgrade fixture, live admission rollback, original test deletion before real execution, preserved score/hidden visibility, mutation guards and later admissions using changed definitions. Local backend TypeScript, ESLint and 30 unit tests passed; live qualification of these new cases is pending the current PR workflow.
+
 ## Verified execution evidence
 
 GitHub Actions run [36735179122](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36735179122), commit `6e49aae39a3b919c1c9943d2b4f18cc18c45ea3e`, completed successfully on 2026-09-30:
