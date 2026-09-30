@@ -27,6 +27,18 @@ describe("real Docker security boundaries (no mocks)", () => {
     );
     expect(s.stdout).toBe("65532\nFalse\nFalse\n");
   });
+  it("keeps the root filesystem read-only while allowing the private workspace", async () => {
+    const s = await run(
+      "import os\ntry:\n open('/etc/codearena-write','w').write('bad')\n print('writable-root')\nexcept OSError: print('readonly-root')\nopen('/workspace/private.txt','w').write('ok')\nprint(open('/workspace/private.txt').read())",
+    );
+    expect(s.stdout).toBe("readonly-root\nok\n");
+  });
+  it("transports shell-looking source as bytes without interpolation", async () => {
+    const s = await run(
+      "print('$(touch /workspace/injected); `id`; $HOME')\nimport os\nprint(os.path.exists('/workspace/injected'))",
+    );
+    expect(s.stdout).toBe("$(touch /workspace/injected); `id`; $HOME\nFalse\n");
+  });
   it("never inherits platform secrets", async () => {
     process.env.CODEARENA_TEST_SECRET = "DO_NOT_LEAK";
     const s = await run(
