@@ -4,11 +4,15 @@
 
 A self-hosted execution platform with a separate API, scheduler, and trusted Docker workers. CodeArena stores a traceable submission lifecycle, reserves project quotas transactionally, streams bounded output, judges protected tests, and signs result notifications.
 
-The dark-first console includes a landing page, Monaco playground, challenge workspaces, submission details, and API-backed project/usage/queue/runtime views. Screenshots will be captured after the real-browser release gate; no fabricated product images are included.
+The dark-first console includes a landing page, Monaco playground, challenge workspaces, submission details, and API-backed project/usage/queue/runtime views.
+
+![Real CodeArena challenge workspace after isolated execution](docs/images/playground.png)
+
+Captured by the Chromium E2E against the real API, queue, worker and Docker sandbox.
 
 ## Implementation status
 
-This is an implementation of the execution and judging foundation, not a certification of production safety. Unit tests, lint, TypeScript checking, and production builds can run without Docker. The Docker integration, sandbox regression, and full browser execution tests **must pass on your intended Linux host before accepting external submissions**. See [verification](docs/VERIFICATION.md) for evidence and gaps.
+This is an implementation of the execution and judging foundation, not a certification of production safety. Unit tests, lint, TypeScript checking, and production builds can run without Docker. The Docker integration, sandbox regression, and full browser execution tests **must pass on your intended Linux host before accepting external submissions**. CI has passed 73 tests, including all eight language runtimes, real sandbox boundaries, browser execution and two-worker crash recovery. A separate full Compose smoke check validates startup/readiness, including the pinned MinIO source build. See [verification](docs/VERIFICATION.md) for exact runs and remaining gaps.
 
 Working code includes registration/login and Argon2id passwords; rotating hashed refresh tokens; verification/reset mail outbox; tenant memberships and projects; hashed scoped API keys; eight centrally configured runtime definitions; bounded submissions and batches; transactional quotas; scheduler leases and outbox dispatch; independently constrained execution containers; cancellation; weighted test judging; hidden-output suppression; drafts/history; SSE output replay; encrypted webhook signing secrets and retry delivery; TypeScript SDK/CLI; metrics and dashboards.
 

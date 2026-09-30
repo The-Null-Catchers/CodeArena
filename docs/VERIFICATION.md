@@ -2,16 +2,17 @@
 
 ## Verified execution evidence
 
-GitHub Actions run [36731508386](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36731508386), main commit `21a1b79e85b57af8137eef798f6b4f800afd0932`, completed successfully on 2026-09-30:
+GitHub Actions run [36735179122](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36735179122), commit `6e49aae39a3b919c1c9943d2b4f18cc18c45ea3e`, completed successfully on 2026-09-30:
 
 - 30 unit tests, ESLint, backend/web TypeScript checks, production builds, SDK/CLI build, and backend/web Docker builds.
 - All eight runtime images built successfully.
 - Core Compose services started: PostgreSQL, Redis, migrations/seed, mail, API, scheduler, worker, and web.
-- 10 real Docker security tests passed: non-root identity, filesystem, secret exclusion, network isolation, process/memory/output/time limits, cancellation and cleanup.
-- 14 API/integration tests passed, including real Python execution, hidden-test protection, scoped keys and hard-limit validation.
-- One Chromium E2E passed: register, challenge, Monaco source, real run/output, submission judging, verdict and submission details. The execution-evidence artifact contains a real playground screenshot.
+- 12 real Docker security tests passed: non-root identity, filesystem read-only/space quota, secret exclusion, network isolation, process/memory/output/time limits, bounded UTF-8 output, cancellation and cleanup.
+- 28 API/integration tests passed: real execution of Python, JavaScript, TypeScript, C, C++, Java, Go and Rust under default limits; compilation-error persistence for all six compiled languages; hidden-test protection; scoped keys; concurrent quotas; refresh rotation; cancellation; hard-limit validation.
+- One Chromium E2E passed: register, challenge, Monaco source, real run/output, submission judging, verdict and submission details.
+- Two live fleet tests passed with separate worker IDs and one slot each: distributed execution without slot overbooking, abrupt worker termination, lease expiry, recovery on the surviving worker, stale-attempt transition rejection while the new attempt is running, one final result, and cleanup of abandoned sandboxes after restart.
 
-This run qualifies the Python execution vertical slice. Building the other seven runtime images does not establish that their compilers and programs execute within resource limits. A subsequent runtime matrix is required before claiming those languages qualified.
+Total: **73 tests passed**. This evidence qualifies these concrete cases on the CI Docker host; it does not replace target-host qualification, load testing or a security assessment.
 
 ## Local environment
 
@@ -19,7 +20,9 @@ Node 24.19.0; pnpm through Corepack. Docker executable/socket unavailable locall
 
 ## Limits of this evidence
 
-MinIO's source build, the full monitoring/proxy/object-store Compose stack, multiple-worker crash/retry and Redis reconnect recovery have not yet been qualified. No production deployment or protected-main policy is claimed. Later product modules remain in ROADMAP.md.
+Full Compose infrastructure smoke checks also passed in run [36735179122](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36735179122), commit `6e49aae39a3b919c1c9943d2b4f18cc18c45ea3e`: the pinned MinIO source image built; all Compose services started; API readiness through Caddy, Prometheus readiness, Grafana database health and MinIO readiness returned successfully. This verifies startup/readiness, not an artifact API or monitoring load behavior.
+
+Redis reconnect recovery, sustained load and deployment-host qualification remain pending. One earlier matrix run hit a Docker setup timeout on a Rust compilation-error case; a later complete run passed. Sandbox phase/correlation logging was added, and extended soak testing remains a release gate. No production deployment or protected-main policy is claimed. Later product modules remain in ROADMAP.md.
 
 ## Required release gates
 
