@@ -29,8 +29,15 @@ test("register → challenge → run → submit → inspect verdict", async ({
     timeout: 60000,
   });
   await page.getByRole("button", { name: "Submit", exact: true }).click();
-  await expect(page.locator(".editor-footer")).toContainText("accepted", {
-    timeout: 60000,
+  await expect(page.locator(".output-stack .editor-footer")).toContainText(
+    "accepted",
+    {
+      timeout: 60000,
+    },
+  );
+  await page.screenshot({
+    path: "test-results/playground.png",
+    fullPage: true,
   });
   await page.getByRole("link", { name: "View submission" }).click();
   await expect(
