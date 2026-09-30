@@ -1,0 +1,6 @@
+# docker compose -f docker-compose.yml -f infrastructure/scripts/worker-02.yml up -d
+services:
+  worker-02:
+    extends: { file: ../../docker-compose.yml, service: worker }
+    environment:
+      WORKER_ID: worker-02

@@ -1,0 +1,9 @@
+packages:
+  - apps/web
+  - packages/execution-sdk
+onlyBuiltDependencies:
+  - argon2
+  - esbuild
+  - msgpackr-extract
+  - sharp
+  - protobufjs

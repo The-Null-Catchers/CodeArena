@@ -1,0 +1,49 @@
+name: CodeArena CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.11.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm --dir packages/execution-sdk build
+      - run: docker build -f infrastructure/docker/service.Dockerfile .
+      - run: docker build -f infrastructure/docker/web.Dockerfile .
+  execution-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.11.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm runtimes:build
+      - run: cp .env.example .env && docker compose up -d --build --wait
+      - run: pnpm test:security
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:integration && pnpm test:e2e
+      - if: always()
+        run: docker compose logs --no-color > compose.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-evidence
+          path: |
+            compose.log
+            playwright-report/
+            test-results/

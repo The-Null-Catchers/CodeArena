@@ -1,0 +1,47 @@
+# Self-hosting and operations
+
+## Development stack
+
+Build language images before starting worker services. Compose starts PostgreSQL, Redis, migration/seed, API, scheduler, worker, web, MinIO, Mailpit, Caddy, Prometheus, and Grafana. Persistent named volumes preserve database, Redis, monitoring, and future object-storage data. Redis uses noeviction so BullMQ state is not silently evicted. Redis capacity/exhaustion requires monitoring.
+
+Database/Redis/web/API/monitoring ports bind to localhost by default; only Caddy :8080 is exposed. Set exact WEB_ORIGIN/NEXT_PUBLIC_API_URL for the actual browser origin; changing a Next public environment value requires a rebuild. Development Caddy serves HTTP. For production use a real hostname and TLS, restrict /metrics and admin dependencies, and close direct service ports.
+
+`.env.example` contains development-only values. Generate independent random secrets. WEBHOOK_ENCRYPTION_KEY must be 64 hex characters. Back up this key securely; losing it prevents stored webhook/mail secrets from decrypting. Changing it requires an explicit re-encryption migration.
+
+## Worker pools
+
+A worker identity is unique and stable for its host. Do not `docker compose --scale worker=2` with the hardcoded worker-01 identity. Use a second service or host with unique WORKER_ID and its own Docker daemon/runtime images:
+
+```yaml
+services:
+  worker-02:
+    extends:
+      file: docker-compose.yml
+      service: worker
+    environment:
+      WORKER_ID: worker-02
+```
+
+Use `docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d --build` after creating an override based on this snippet. Ensure inherited database/Redis env, networks, and migration dependencies remain intact. Worker slots reserve 512 MiB per slot plus 512 MiB headroom; WORKER_MEMORY_MB must reflect host capacity, not merely an advertised number. Multiple workers on one Docker host require accounting for their combined reservations. Host operators are responsible for aggregate host limits.
+
+Workers detect installed images and register supported runtime IDs. Disable unavailable versions operationally rather than leaving jobs waiting forever. Map RUNTIME_IMAGE_* to reviewed immutable image digests in production. Submitter-selected images are not accepted.
+
+## Drain and shutdown
+
+Drain via platform admin API or SIGTERM. Scheduler skips draining/offline/stale workers. Claims recheck worker status. Workers finish active jobs, then abort after a 20-second grace deadline and remove containers. Compose allows 35 seconds for shutdown. Heartbeat loss interrupts assignments, bounded retries requeue them, and attempt fencing rejects stale final writes.
+
+After a host crash, runtime container leftovers are reaped at next worker startup under the same identity. If a host remains unreachable, stop/reconcile its daemon before recycling its identity. Do not delete arbitrary containers: managed cleanup filters platform and worker labels.
+
+## Monitoring
+
+Prometheus scrapes API, scheduler, and worker metrics. Grafana provisioning supplies execution/API/queue/worker dashboards. Current measurements cover API route latency/status, active slots, execution duration and pending queue depth, plus process defaults. Fine-grained DB/Redis latency, launch failure counters, host CPU/RAM, and full p50/p95/p99 analytics are roadmap work.
+
+Inspect readiness for dependencies, worker runtime availability, queue backlog, stale heartbeats, dead-letter webhooks, and mail outbox. Do not interpret a live HTTP process as a ready execution fleet.
+
+## Backups
+
+Back up PostgreSQL, encrypted-secret key material, and configuration. Test restore on an isolated environment. Migrations use an advisory lock and schema_migrations table. No destructive automatic migration rollback is supplied. Preserve audit logs and minimize access to source and private tests. Apply retention policies explicitly rather than deleting active submissions.
+
+## Release process
+
+Run all gates in VERIFICATION.md, build immutable images, review dependencies, configure main branch protection, and stage a real multi-worker deployment. No remote repository, production deployment, or branch protection was created by the source archive. Do not claim CI passed before the actual run completes.

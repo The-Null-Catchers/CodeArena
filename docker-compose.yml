@@ -1,0 +1,197 @@
+name: codearena
+x-service: &service
+  build:
+    context: .
+    dockerfile: infrastructure/docker/service.Dockerfile
+  env_file: .env
+  environment: &environment
+    DATABASE_URL: postgresql://codearena:${POSTGRES_PASSWORD}@postgres:5432/codearena
+    REDIS_URL: redis://redis:6379
+  restart: unless-stopped
+  networks: [control]
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    redis: { condition: service_healthy }
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      {
+        POSTGRES_USER: codearena,
+        POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}",
+        POSTGRES_DB: codearena,
+      }
+    volumes: [postgres:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:5432:5432"]
+    networks: [control]
+    healthcheck:
+      {
+        test: ["CMD-SHELL", "pg_isready -U codearena"],
+        interval: 5s,
+        timeout: 3s,
+        retries: 20,
+      }
+  redis:
+    image: redis:7.4-bookworm
+    command:
+      [
+        redis-server,
+        --appendonly,
+        "yes",
+        --maxmemory,
+        256mb,
+        --maxmemory-policy,
+        noeviction,
+      ]
+    volumes: [redis:/data]
+    ports: ["127.0.0.1:6379:6379"]
+    networks: [control]
+    healthcheck:
+      {
+        test: ["CMD", "redis-cli", "ping"],
+        interval: 5s,
+        timeout: 3s,
+        retries: 20,
+      }
+  migrate:
+    build: { context: ., dockerfile: infrastructure/docker/service.Dockerfile }
+    env_file: .env
+    environment: *environment
+    command:
+      [
+        "sh",
+        "-c",
+        "node dist/packages/db/src/migrate.js && node dist/packages/db/src/seed.js",
+      ]
+    networks: [control]
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+  api:
+    <<: *service
+    ports: ["127.0.0.1:4000:4000"]
+    healthcheck:
+      {
+        test:
+          [
+            "CMD",
+            "node",
+            "-e",
+            "fetch('http://localhost:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          ],
+        interval: 10s,
+        timeout: 3s,
+        retries: 10,
+      }
+  scheduler:
+    <<: *service
+    environment:
+      <<: *environment
+      SMTP_HOST: mailpit
+    command: ["node", "dist/apps/scheduler/src/index.js"]
+    healthcheck:
+      {
+        test:
+          [
+            "CMD",
+            "node",
+            "-e",
+            "fetch('http://localhost:4200/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          ],
+        interval: 10s,
+        timeout: 3s,
+        retries: 10,
+      }
+  worker:
+    <<: *service
+    # Trusted worker has root-equivalent Docker control. Runtime containers NEVER receive this socket.
+    user: "0:0"
+    command: ["node", "dist/apps/worker/src/index.js"]
+    environment:
+      <<: *environment
+      WORKER_ID: worker-01
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    stop_grace_period: 35s
+    healthcheck:
+      {
+        test:
+          [
+            "CMD",
+            "node",
+            "-e",
+            "fetch('http://localhost:4100/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          ],
+        interval: 10s,
+        timeout: 3s,
+        retries: 10,
+      }
+  web:
+    build:
+      {
+        context: .,
+        dockerfile: infrastructure/docker/web.Dockerfile,
+        args:
+          {
+            NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:4000}",
+          },
+      }
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [control]
+    restart: unless-stopped
+    depends_on: { api: { condition: service_healthy } }
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: [server, /data, --console-address, ":9001"]
+    environment:
+      {
+        MINIO_ROOT_USER: "${MINIO_ROOT_USER}",
+        MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}",
+      }
+    volumes: [minio:/data]
+    ports: ["127.0.0.1:9001:9001"]
+    networks: [control]
+  mailpit:
+    image: axllent/mailpit:v1.24
+    ports: ["127.0.0.1:8025:8025"]
+    networks: [control]
+  caddy:
+    image: caddy:2.10-alpine
+    volumes:
+      [
+        "./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro",
+        "caddy:/data",
+      ]
+    ports: ["8080:80"]
+    networks: [control]
+    depends_on: [web, api]
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    volumes:
+      [
+        "./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro",
+        "prometheus:/prometheus",
+      ]
+    ports: ["127.0.0.1:9090:9090"]
+    networks: [control]
+  grafana:
+    image: grafana/grafana:12.0.0
+    environment:
+      {
+        GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}",
+        GF_AUTH_ANONYMOUS_ENABLED: "false",
+      }
+    volumes:
+      [
+        "./infrastructure/monitoring/grafana:/etc/grafana/provisioning:ro",
+        "grafana:/var/lib/grafana",
+      ]
+    ports: ["127.0.0.1:3001:3000"]
+    networks: [control]
+networks:
+  control: {}
+volumes:
+  postgres: {}
+  redis: {}
+  minio: {}
+  caddy: {}
+  prometheus: {}
+  grafana: {}
