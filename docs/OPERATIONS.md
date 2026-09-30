@@ -12,17 +12,14 @@ Database/Redis/web/API/monitoring ports bind to localhost by default; only Caddy
 
 A worker identity is unique and stable for its host. Do not `docker compose --scale worker=2` with the hardcoded worker-01 identity. Use a second service or host with unique WORKER_ID and its own Docker daemon/runtime images:
 
-```yaml
-services:
-  worker-02:
-    extends:
-      file: docker-compose.yml
-      service: worker
-    environment:
-      WORKER_ID: worker-02
+```bash
+docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d --build
+pnpm test:fleet
 ```
 
-Use `docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d --build` after creating an override based on this snippet. Ensure inherited database/Redis env, networks, and migration dependencies remain intact. Worker slots reserve 512 MiB per slot plus 512 MiB headroom; WORKER_MEMORY_MB must reflect host capacity, not merely an advertised number. Multiple workers on one Docker host require accounting for their combined reservations. Host operators are responsible for aggregate host limits.
+The included override uses worker-01 and worker-02 with one slot each. The fleet test requires this override, real PostgreSQL/Redis, and a Docker host; it kills a trusted worker and verifies lease recovery and abandoned-container cleanup. Never run destructive failure injection against a production fleet.
+
+Worker slots reserve 512 MiB per slot plus 512 MiB headroom; WORKER_MEMORY_MB must reflect host capacity, not merely an advertised number. Multiple workers on one Docker host require accounting for their combined reservations. Host operators are responsible for aggregate host limits.
 
 Workers detect installed images and register supported runtime IDs. Disable unavailable versions operationally rather than leaving jobs waiting forever. Map RUNTIME_IMAGE_* to reviewed immutable image digests in production. Submitter-selected images are not accepted.
 
@@ -44,8 +41,8 @@ Back up PostgreSQL, encrypted-secret key material, and configuration. Test resto
 
 ## Release process
 
-Run all gates in VERIFICATION.md, build immutable images, review dependencies, configure main branch protection, and stage a real multi-worker deployment. No remote repository, production deployment, or branch protection was created by the source archive. Do not claim CI passed before the actual run completes.
+Run all gates in VERIFICATION.md, build immutable images, review dependencies, configure main branch protection, and stage a real multi-worker deployment. The repository runs real execution CI on GitHub. Current qualified runs are recorded in VERIFICATION.md; no production deployment or branch protection is claimed.
 
 ## Object-store image provenance
 
-MinIO is built locally from upstream commit `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` (RELEASE.2025-10-15T17-29-55Z), with source identity verified during the build. Its upstream AGPL license is included in the image. This removes reliance on unavailable Docker Hub images. Review upstream licensing before redistribution. Core execution CI starts only the services required for execution; object-storage build qualification remains separate because there is no artifact API yet.
+MinIO is built locally from upstream commit `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` (RELEASE.2025-10-15T17-29-55Z), with source identity verified during the build. Its upstream AGPL license is included in the image. This removes reliance on unavailable Docker Hub images. Review upstream licensing before redistribution. Core execution CI starts the services required for execution. A separate infrastructure-smoke job builds this image and starts the full Compose stack, checking API readiness through Caddy, Prometheus, Grafana and MinIO. Object storage remains unused by application artifacts until an artifact API is implemented.

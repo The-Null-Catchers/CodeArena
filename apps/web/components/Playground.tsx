@@ -38,7 +38,8 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
     [result, setResult] = useState<any>(null),
     [events, setEvents] = useState<string[]>([]),
     [elapsed, setElapsed] = useState(0),
-    [fontSize, setFontSize] = useState(14);
+    [fontSize, setFontSize] = useState(14),
+    [executionMode, setExecutionMode] = useState("run");
   const abort = useRef<AbortController | null>(null),
     started = useRef(0);
   const busy = [
@@ -84,6 +85,7 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
     return () => clearInterval(timer);
   }, [busy]);
   const run = async (mode = "run") => {
+    setExecutionMode(mode);
     setError("");
     setOutput("");
     setStderr("");
@@ -282,9 +284,13 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
             </div>
             <pre aria-label="Standard output" className="output">
               {output ||
-                (!busy
-                  ? "Run your code to see output."
-                  : "Waiting for output…")}
+                (busy
+                  ? "Waiting for output…"
+                  : result
+                    ? executionMode === "challenge"
+                      ? "Challenge output is private. Inspect the verdict and submission details."
+                      : "No standard output."
+                    : "Run your code to see output.")}
             </pre>
             {stderr && (
               <pre
@@ -301,7 +307,7 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
             <div className="editor-footer">
               <span>
                 {result
-                  ? `${result.wall_ms} ms · ${(Number(result.peak_memory_bytes) / 1048576).toFixed(1)} MB`
+                  ? `${result.wall_ms} ms · ${Number(result.peak_memory_bytes) > 0 ? `${(Number(result.peak_memory_bytes) / 1048576).toFixed(1)} MB` : "memory unavailable"}`
                   : `${(elapsed / 1000).toFixed(1)}s`}
               </span>
               <span>{result?.verdict || "network: none"}</span>

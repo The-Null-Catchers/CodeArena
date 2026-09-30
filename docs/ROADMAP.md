@@ -1,8 +1,8 @@
 # Roadmap
 
-The first release gate is real end-to-end execution qualification, not additional dashboard pages.
+The execution foundation now has real eight-language and two-worker failure-injection evidence in VERIFICATION.md. Remaining release gates and product work are explicit below.
 
-1. Run the real-host release gates; fix runtime compilation budgets and cache layout; strengthen exact output decoding, measured resource accounting, SSE terminal reconciliation/reconnect, and cleanup failure observability.
+1. Qualify the deployment host and Redis reconnect/extended load behavior; strengthen measured resource accounting, SSE terminal reconciliation/reconnect, and cleanup failure observability.
 2. Separate mail/webhook workers; add structured service log correlation, per-user/key/project rate budgets, tenant concurrency plans, and live fleet/queue event streams.
 3. Add digest/version snapshots at admission, safe immutable compilation artifacts, object-storage artifacts with file-count/MIME/size/download policies.
 4. Add challenge editing/publishing UI, language restrictions, tags/templates, richer per-test/group scoring, versioned immutable test snapshots, and runtime-aware leaderboards.

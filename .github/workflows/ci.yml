@@ -37,8 +37,10 @@ jobs:
       - run: pnpm test:security
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:integration && pnpm test:e2e
+      - run: docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d --build --wait worker worker-02
+      - run: pnpm test:fleet
       - if: always()
-        run: docker compose logs --no-color > compose.log
+        run: docker compose -f docker-compose.yml -f docker-compose.workers.yml logs --no-color > compose.log
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -47,3 +49,23 @@ jobs:
             compose.log
             playwright-report/
             test-results/
+
+  infrastructure-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t codearena-runtime-python:3.13 runtimes/python
+      - run: cp .env.example .env && docker compose up -d --build --wait
+      - run: |
+          curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8080/health/ready
+          curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:9090/-/ready
+          curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:3001/api/health
+          docker compose exec -T api node -e "fetch('http://minio:9000/minio/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      - if: always()
+        run: docker compose logs --no-color > infrastructure.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infrastructure-evidence
+          path: infrastructure.log

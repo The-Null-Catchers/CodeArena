@@ -28,6 +28,13 @@ test("register → challenge → run → submit → inspect verdict", async ({
   await expect(page.getByLabel("Standard output")).toContainText("anera", {
     timeout: 60000,
   });
+  await expect(page.locator(".output-stack .editor-footer")).toContainText(
+    "accepted",
+  );
+  await page.screenshot({
+    path: "test-results/playground.png",
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Submit", exact: true }).click();
   await expect(page.locator(".output-stack .editor-footer")).toContainText(
     "accepted",
@@ -35,10 +42,9 @@ test("register → challenge → run → submit → inspect verdict", async ({
       timeout: 60000,
     },
   );
-  await page.screenshot({
-    path: "test-results/playground.png",
-    fullPage: true,
-  });
+  await expect(page.getByLabel("Standard output")).toContainText(
+    "Challenge output is private",
+  );
   await page.getByRole("link", { name: "View submission" }).click();
   await expect(
     page.getByRole("heading", { name: "Submission details" }),

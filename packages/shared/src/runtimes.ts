@@ -48,6 +48,8 @@ function runtime(
       "GOPATH=/workspace/go",
       "GOTOOLCHAIN=local",
       "GOPROXY=off",
+      "GOMAXPROCS=1",
+      "CGO_ENABLED=0",
     ],
   };
 }
@@ -111,7 +113,7 @@ export const runtimes = [
     "Go",
     "main.go",
     ["./main"],
-    ["go", "build", "-o", "main", "main.go"],
+    ["/usr/local/bin/codearena-go-compile"],
   ),
   runtime(
     "rust",

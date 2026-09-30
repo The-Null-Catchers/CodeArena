@@ -16,7 +16,8 @@
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "db:seed": "tsx packages/db/src/seed.ts",
     "runtimes:build": "bash infrastructure/scripts/build-runtimes.sh",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:fleet": "vitest run --config vitest.fleet.config.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",

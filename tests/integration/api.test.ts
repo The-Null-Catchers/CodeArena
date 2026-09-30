@@ -1,3 +1,4 @@
+import { limitedFetch } from "./http.js";
 import { beforeAll, describe, it, expect } from "vitest";
 const base = process.env.API_URL || "http://localhost:4000";
 let access = "",
@@ -10,7 +11,7 @@ async function call(
   token = access,
   method = body ? "POST" : "GET",
 ) {
-  const response = await fetch(base + path, {
+  const response = await limitedFetch(base + path, {
     method,
     headers: {
       ...(body ? { "Content-Type": "application/json" } : {}),

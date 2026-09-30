@@ -6,7 +6,7 @@ CodeArena treats all submitted code as hostile. This repository is not a sandbox
 
 - API and scheduler never execute submitted programs.
 - Runtime UID/GID 65532, dropped capabilities, no-new-privileges, no privileged mode, no host PID/network namespace, no host bind mounts or Docker socket.
-- Read-only image filesystem; separately bounded tmpfs workspace and /tmp; bounded shared memory and file descriptors; core dumps disabled.
+- Read-only image filesystem; separately bounded tmpfs workspace (exec for compiled binaries, nosuid/nodev) and /tmp (noexec/nosuid/nodev); bounded shared memory and file descriptors; core dumps disabled.
 - No runtime internet access, platform-service networking, user images, injected platform secrets, or user environment overrides.
 - Cgroup memory and swap ceilings, PID ceiling, one-CPU scheduling quota, CPU rlimit, sampled aggregate CPU budget, wall deadline, combined output cap.
 - Docker default seccomp remains active. Workers fail startup if Docker does not advertise seccomp and critical cgroup constraints. AppArmor may be explicitly configured with SANDBOX_APPARMOR.
@@ -21,7 +21,7 @@ The trusted worker's Docker socket grants host-level control. Run it on a dedica
 
 No custom seccomp profile is included; Docker's maintained default is used. Install and test any requested AppArmor profile yourself. AppArmor absence is not silently claimed as enforcement.
 
-CPU sampling can overshoot by a sampling interval or Docker response delay; CPU rlimits are per-process and rounded to seconds. Reported CPU/peak memory are approximate, especially for short jobs. Container exec OOM classification may return runtime_error rather than memory_limit_exceeded, while the memory cgroup still bounds allocation. Stream reconnection merits further hardening. Output collection caps both raw and UTF-8-normalized bytes and preserves split characters. Go compilation/cache sizes can exceed the current workspace budget; all eight runtime definitions require real execution qualification, not just typechecking.
+CPU sampling can overshoot by a sampling interval or Docker response delay; CPU rlimits are per-process and rounded to seconds. Reported CPU/peak memory are approximate, especially for short jobs. Container exec OOM classification may return runtime_error rather than memory_limit_exceeded, while the memory cgroup still bounds allocation. Stream reconnection merits further hardening. Output collection caps both raw and UTF-8-normalized bytes and preserves split characters. Go uses trusted, prebuilt standard-library archives in the read-only image; each job compiles and links its own main file inside its bounded private workspace. Only a single source file and the standard library are supported in v1; third-party modules, cgo and embed attachments are not supported. This image cache contains no submitted source or writable shared build directory. Qualify every runtime on the target host; typechecking and image builds alone are insufficient.
 
 The public playground UI requires authentication to create jobs; anonymous execution admission is deliberately not implemented. Email verification links exist, but verification is not currently an execution gate. Session tokens are stored in sessionStorage by the web client; switch to appropriately secured HttpOnly-cookie sessions for a hardened public browser deployment. Webhooks are at least once; recipient deduplication and replay checks are required.
 
