@@ -46,3 +46,11 @@ Run all gates in VERIFICATION.md, build immutable images, review dependencies, c
 ## Object-store image provenance
 
 MinIO is built locally from upstream commit `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` (RELEASE.2025-10-15T17-29-55Z), with source identity verified during the build. Its upstream AGPL license is included in the image. This removes reliance on unavailable Docker Hub images. Review upstream licensing before redistribution. Core execution CI starts the services required for execution. A separate infrastructure-smoke job builds this image and starts the full Compose stack, checking API readiness through Caddy, Prometheus, Grafana and MinIO. Object storage remains unused by application artifacts until an artifact API is implemented.
+
+## Redis outage behavior
+
+PostgreSQL remains authoritative for reservations, leases, cancellation and final results. Ordinary Redis commands have a 1.5-second deadline and do not queue offline. BullMQ workers use a separate reconnecting connection, while scheduler dispatch retains its PostgreSQL outbox until Redis acknowledges the deterministic job ID. During a broker outage, running sandboxes can finish and the worker continues renewing leases and reading cancellation flags from PostgreSQL. HTTP rate limiting still fails closed; health routes remain available and readiness returns 503 when Redis cannot answer.
+
+Live output and state events are best effort. Events missed during an outage are not guaranteed to replay; clients reconcile state and final output from PostgreSQL after reconnect. Redis stream writes and their one-hour expiry are atomic. The SSE reader uses its own 15-second deadline for a 10-second blocking read.
+
+Run `pnpm test:redis` with a dedicated Redis on port 6380 (or set `TEST_REDIS_URL`). The probe temporarily pauses that server; never point it at a production/application broker. `pnpm test:fleet` stops and restarts the development Compose broker, checks completion and database cancellation while it is down, then verifies durable dispatch resumes without worker restarts. These are destructive qualification tests for an isolated development stack.

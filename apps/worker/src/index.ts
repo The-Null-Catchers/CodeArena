@@ -6,6 +6,7 @@ import { config } from "../../../packages/config/src/index.js";
 import { pool, tx } from "../../../packages/db/src/index.js";
 import {
   redis,
+  createWorkerConnection,
   publish,
   transition,
 } from "../../../packages/shared/src/events.js";
@@ -80,7 +81,11 @@ const duration = new Histogram({
 });
 let draining = false;
 let healthy = true;
+const queueConnection = createWorkerConnection();
+let heartRunning = false;
 const heart = setInterval(() => {
+  if (heartRunning) return;
+  heartRunning = true;
   void (async () => {
     if (identityLost) throw new Error("WORKER_IDENTITY_LOST");
     await pool.query(
@@ -91,15 +96,24 @@ const heart = setInterval(() => {
       "UPDATE submissions SET lease_until=now()+interval '20 seconds' WHERE worker_id=$1 AND id=ANY($2::uuid[]) AND state IN ('preparing','compiling','running','judging')",
       [config.WORKER_ID, [...controllers.keys()]],
     );
-    healthy = true;
-    for (const [id, c] of controllers) {
-      const cancelled = await redis.get(`cancel:${id}`);
-      if (cancelled) c.abort();
-    }
-  })().catch(() => {
-    healthy = false;
-    for (const c of controllers.values()) c.abort();
-  });
+    // Cancellation and lease renewal must still work while Redis is unavailable.
+    const cancelled = await pool.query(
+      "SELECT id FROM submissions WHERE id=ANY($1::uuid[]) AND cancel_requested",
+      [[...controllers.keys()]],
+    );
+    for (const row of cancelled.rows) controllers.get(row.id)?.abort();
+    healthy = await redis
+      .ping()
+      .then(() => queueConnection.status === "ready")
+      .catch(() => false);
+  })()
+    .catch(() => {
+      healthy = false;
+      for (const c of controllers.values()) c.abort();
+    })
+    .finally(() => {
+      heartRunning = false;
+    });
 }, 3000);
 await backend.reap(config.WORKER_ID, new Set());
 const worker = new Worker(
@@ -369,7 +383,7 @@ const worker = new Worker(
     }
   },
   {
-    connection: redis as any,
+    connection: queueConnection as any,
     concurrency: config.WORKER_SLOTS,
     maxStalledCount: 1,
     lockDuration: 30000,
@@ -413,6 +427,7 @@ const shutdown = async () => {
   identity.release();
   await pool.end();
   await redis.quit();
+  await queueConnection.quit();
 };
 for (const sig of ["SIGTERM", "SIGINT"])
   process.on(sig, () => {

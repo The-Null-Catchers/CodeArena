@@ -94,17 +94,24 @@ app.setErrorHandler((unknownError, req, reply) => {
   });
 });
 for (const path of ["/health", "/health/live"])
-  app.get(path, async () => ({ status: "ok", service: "codearena-api" }));
-app.get("/health/ready", async (_req, reply) => {
-  try {
-    await pool.query("SELECT 1");
-    await redis.ping();
-    return { status: "ready" };
-  } catch {
-    reply.code(503);
-    return { status: "unavailable" };
-  }
-});
+  app.get(path, { config: { rateLimit: false } }, async () => ({
+    status: "ok",
+    service: "codearena-api",
+  }));
+app.get(
+  "/health/ready",
+  { config: { rateLimit: false } },
+  async (_req, reply) => {
+    try {
+      await pool.query("SELECT 1");
+      await redis.ping();
+      return { status: "ready" };
+    } catch {
+      reply.code(503);
+      return { status: "unavailable" };
+    }
+  },
+);
 app.get("/metrics", async (_req, reply) =>
   reply.type(registry.contentType).send(await registry.metrics()),
 );
@@ -392,7 +399,7 @@ app.post("/v1/submissions/:id/cancel", async (req) => {
     if (["created", "queued", "scheduled"].includes(locked.state))
       await transition(c, s.id, "cancelled", "Cancelled by caller");
   });
-  await redis.set(`cancel:${s.id}`, "1", "EX", 60);
+  await redis.set(`cancel:${s.id}`, "1", "EX", 60).catch(() => {});
   await publish(s.id, "state", { cancelRequested: true });
   return { ok: true };
 });
@@ -415,7 +422,10 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
   const keepAlive = setInterval(() => {
     void redis.zadd(streamKey, Date.now() + 30000, req.id).catch(() => {});
   }, 10000);
-  const reader = redis.duplicate();
+  // XREAD intentionally blocks for ten seconds; give this dedicated reader a
+  // longer deadline than ordinary Redis commands, then close SSE on failure.
+  const reader = redis.duplicate({ commandTimeout: 15000, lazyConnect: true });
+  reader.on("error", () => {});
   let cursor = /^\d+-\d+$/.test(String(req.headers["last-event-id"]))
     ? String(req.headers["last-event-id"])
     : "0-0";
@@ -438,6 +448,7 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
     reader.disconnect();
   });
   try {
+    await reader.connect();
     while (!closed) {
       const records = (await reader.call(
         "XREAD",
