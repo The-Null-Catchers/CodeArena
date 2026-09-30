@@ -1,10 +1,10 @@
 # Verification record
 
-## Redis recovery qualification changes
+## Verified Redis recovery
 
 Bounded Redis commands, independent BullMQ worker connections, database cancellation polling, atomic stream retention and a dedicated SSE deadline are implemented. New real-Redis probes cover successful publication, an open connection whose server stops responding, and reconnect after offline rejection. A live two-worker fleet scenario stops the Compose broker during execution, checks completion/cancellation and a retained dispatch outbox, then checks resumption without worker restarts, single completion, usage records and sandbox cleanup.
 
-These new scenarios require a successful workflow run before Redis recovery is counted as qualified. The 73-test evidence below predates these changes. Extended outages, Redis data loss and sustained load remain separate release gates.
+GitHub Actions run [36751926401](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36751926401), commit `1ff4ec421c6eb0856173f93ab8c0474dfd42e9d4`, passed all three jobs, including the live Redis outage scenario and three dedicated Redis probes. Total: **77 tests passed** (30 unit, 12 sandbox security, 28 integration, one Chromium, three fleet, three Redis). Extended outages, Redis data loss and sustained load remain separate release gates.
 
 ## Verified execution evidence
 
@@ -28,7 +28,7 @@ Node 24.19.0; pnpm through Corepack. Docker executable/socket unavailable locall
 
 Full Compose infrastructure smoke checks also passed in run [36735179122](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36735179122), commit `6e49aae39a3b919c1c9943d2b4f18cc18c45ea3e`: the pinned MinIO source image built; all Compose services started; API readiness through Caddy, Prometheus readiness, Grafana database health and MinIO readiness returned successfully. This verifies startup/readiness, not an artifact API or monitoring load behavior.
 
-Redis reconnect recovery, sustained load and deployment-host qualification remain pending. One earlier matrix run hit a Docker setup timeout on a Rust compilation-error case; a later complete run passed. Sandbox phase/correlation logging was added, and extended soak testing remains a release gate. No production deployment or protected-main policy is claimed. Later product modules remain in ROADMAP.md.
+Extended Redis outages/data loss, sustained load and deployment-host qualification remain pending. One earlier matrix run hit a Docker setup timeout on a Rust compilation-error case; a later complete run passed. Sandbox phase/correlation logging was added, and extended soak testing remains a release gate. No production deployment or protected-main policy is claimed. Later product modules remain in ROADMAP.md.
 
 ## Required release gates
 

@@ -134,3 +134,11 @@ node packages/execution-sdk/dist/cli.js submissions get SUBMISSION_UUID
 ```
 
 CODEARENA_API_URL and CODEARENA_STDIN are optional. Login saves local config with restricted permissions. Do not include credentials in command history or commit the configuration.
+
+## Captured judging data
+
+Challenge creation accepts an optional `languages` array containing one or more of the eight platform language IDs. Omission preserves unrestricted language support. Public challenge detail returns `languages` (an empty array means all platform languages); both run and challenge requests linked to that challenge enforce the restriction.
+
+Challenge submissions capture ordered test inputs, expected outputs, visibility, weights, group labels and per-test limits together with the judge strategy, in the admission transaction before queueing. Worker execution, retries and result details use this immutable capture, even if original tests are edited or deleted. Public responses never include captured inputs/expected outputs. Submission metadata includes `judge_strategy`, `test_snapshot_hash`, `test_snapshot_origin` and `test_snapshot_at`; test results include captured weight/group metadata. The hash covers the strategy and ordered test records.
+
+Existing submissions migrated from older releases have `test_snapshot_origin=legacy-backfill` and a null hash: the backfill captures currently available definitions and cannot prove what ran historically. New captures use `admission`. Runtime image digest pinning and challenge revision editing remain separate roadmap items.

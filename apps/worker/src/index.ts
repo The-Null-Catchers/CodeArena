@@ -194,8 +194,8 @@ const worker = new Worker(
         s.mode === "challenge"
           ? (
               await pool.query(
-                "SELECT t.*,c.judge FROM challenge_test_cases t JOIN challenges c ON c.id=t.challenge_id WHERE t.challenge_id=$1 ORDER BY position LIMIT 100",
-                [s.challenge_id],
+                "SELECT t.*,t.test_case_id AS id,$2::text AS judge FROM submission_test_cases t WHERE t.submission_id=$1 ORDER BY position LIMIT 100",
+                [s.id, s.judge_strategy],
               )
             ).rows
           : [{ stdin: s.stdin, expected: "", weight: 1 }];

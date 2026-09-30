@@ -54,3 +54,9 @@ PostgreSQL remains authoritative for reservations, leases, cancellation and fina
 Live output and state events are best effort. Events missed during an outage are not guaranteed to replay; clients reconcile state and final output from PostgreSQL after reconnect. Redis stream writes and their one-hour expiry are atomic. The SSE reader uses its own 15-second deadline for a 10-second blocking read.
 
 Run `pnpm test:redis` with a dedicated Redis on port 6380 (or set `TEST_REDIS_URL`). The probe temporarily pauses that server; never point it at a production/application broker. `pnpm test:fleet` stops and restarts the development Compose broker, checks completion and database cancellation while it is down, then verifies durable dispatch resumes without worker restarts. These are destructive qualification tests for an isolated development stack.
+
+## Judging snapshot migration
+
+Before applying migration 004 to an existing deployment, stop admission, drain workers, then stop the scheduler/API. Back up PostgreSQL and migrate before restarting every API/worker instance on the new version. Do not run mixed old/new worker versions: old workers read mutable challenge tables. This migration copies current tests for historical submissions and labels them `legacy-backfill`; it cannot recover historical edits.
+
+Submission test captures and captured judge metadata reject mutation. Future challenge editors must lock the challenge row before updating its tests or language policy. Tests may be replaced in challenge tables without changing admitted executions. Preserve captured data for the submission retention lifetime; deletion/retention needs an explicit audited migration rather than bypassing triggers in request handlers.

@@ -26,6 +26,7 @@ import {
   terminal,
 } from "../../../packages/shared/src/domain.js";
 import { getRuntime } from "../../../packages/shared/src/runtimes.js";
+import { captureJudgingSnapshot } from "../../../packages/shared/src/judging-snapshot.js";
 import { registerAuth, actor, authorize, hash } from "./auth.js";
 export const app = Fastify({
   bodyLimit: 160 * 1024,
@@ -186,6 +187,22 @@ app.post("/v1/challenges", async (req, reply) => {
       description: z.string().min(1).max(30000),
       difficulty: z.enum(["easy", "medium", "hard"]),
       visibility: z.enum(["public", "private"]).default("private"),
+      languages: z
+        .array(
+          z.enum([
+            "python",
+            "javascript",
+            "typescript",
+            "java",
+            "c",
+            "cpp",
+            "go",
+            "rust",
+          ]),
+        )
+        .min(1)
+        .max(8)
+        .optional(),
       judge: z
         .enum(["exact", "whitespace", "case_insensitive", "float"])
         .default("whitespace"),
@@ -224,6 +241,11 @@ app.post("/v1/challenges", async (req, reply) => {
         ],
       )
     ).rows[0];
+    for (const language of new Set(b.languages || []))
+      await c.query(
+        "INSERT INTO challenge_languages(challenge_id,language) VALUES($1,$2)",
+        [row.id, language],
+      );
     for (const [position, t] of b.tests.entries())
       await c.query(
         "INSERT INTO challenge_test_cases(challenge_id,position,stdin,expected,hidden,weight,wall_time_ms,memory_mb,test_group) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
@@ -280,18 +302,30 @@ const create = async (req: any, body: unknown) => {
       throw Object.assign(new Error("Runtime unavailable"), {
         statusCode: 400,
       });
-    if (
-      b.challengeId &&
-      !(
+    let challenge: any;
+    if (b.challengeId) {
+      challenge = (
         await c.query(
-          "SELECT 1 FROM challenges WHERE id=$1 AND (visibility='public' OR project_id=$2)",
+          "SELECT id,judge FROM challenges WHERE id=$1 AND (visibility='public' OR project_id=$2) FOR SHARE",
           [b.challengeId, b.projectId],
         )
-      ).rowCount
-    )
-      throw Object.assign(new Error("Challenge unavailable"), {
-        statusCode: 404,
-      });
+      ).rows[0];
+      if (!challenge)
+        throw Object.assign(new Error("Challenge unavailable"), {
+          statusCode: 404,
+        });
+      const allowed = (
+        await c.query(
+          "SELECT language FROM challenge_languages WHERE challenge_id=$1",
+          [challenge.id],
+        )
+      ).rows;
+      if (allowed.length && !allowed.some((row) => row.language === r.language))
+        throw Object.assign(
+          new Error("Language is not allowed for this challenge"),
+          { statusCode: 400 },
+        );
+    }
     const row = (
       await c.query(
         "INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,priority,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'created') RETURNING id",
@@ -308,6 +342,8 @@ const create = async (req: any, body: unknown) => {
         ],
       )
     ).rows[0];
+    if (b.mode === "challenge")
+      await captureJudgingSnapshot(c, row.id, challenge.id, challenge.judge);
     await c.query(
       "INSERT INTO submission_events(submission_id,state,reason) VALUES($1,'created','Request accepted')",
       [row.id],
@@ -372,7 +408,7 @@ app.get("/v1/submissions/:id", async (req) => {
       [s.id],
     ),
     pool.query(
-      "SELECT t.verdict,t.wall_ms,t.peak_memory_bytes,c.position,c.hidden FROM test_results t JOIN challenge_test_cases c ON c.id=t.test_case_id WHERE t.submission_id=$1 ORDER BY c.position",
+      "SELECT t.verdict,t.wall_ms,t.peak_memory_bytes,c.position,c.hidden,c.weight,c.test_group FROM test_results t JOIN submission_test_cases c ON c.submission_id=t.submission_id AND c.test_case_id=t.test_case_id WHERE t.submission_id=$1 ORDER BY c.position",
       [s.id],
     ),
   ]);
@@ -509,6 +545,12 @@ app.get("/v1/challenges/:slug", async (req) => {
     throw Object.assign(new Error("Challenge not found"), { statusCode: 404 });
   return {
     ...c,
+    languages: (
+      await pool.query(
+        "SELECT language FROM challenge_languages WHERE challenge_id=$1 ORDER BY language",
+        [c.id],
+      )
+    ).rows.map((row) => row.language),
     samples: (
       await pool.query(
         "SELECT stdin,expected FROM challenge_test_cases WHERE challenge_id=$1 AND NOT hidden ORDER BY position",
