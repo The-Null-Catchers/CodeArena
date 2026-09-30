@@ -153,3 +153,80 @@ describe("full API → scheduler → Docker flow", () => {
       ).status,
     ).toBe(400));
 });
+
+const languageCases = [
+  { language: "python", version: "3.13", source: "print(input())" },
+  {
+    language: "javascript",
+    version: "22",
+    source: "console.log(require('fs').readFileSync(0, 'utf8'))",
+  },
+  { language: "typescript", version: "5.8", source: "console.log('arena')" },
+  {
+    language: "c",
+    version: "14",
+    source:
+      '#include <stdio.h>\nint main(void) { char s[32]; if (scanf("%31s", s) == 1) puts(s); return 0; }',
+  },
+  {
+    language: "cpp",
+    version: "14",
+    source:
+      '#include <iostream>\n#include <string>\nint main() { std::string s; std::cin >> s; std::cout << s << "\\n"; }',
+  },
+  {
+    language: "java",
+    version: "21",
+    source:
+      "import java.util.Scanner;\npublic class Main { public static void main(String[] args) { System.out.println(new Scanner(System.in).nextLine()); } }",
+  },
+  {
+    language: "go",
+    version: "1.24",
+    source:
+      'package main\nimport "fmt"\nfunc main() { var s string; fmt.Scanln(&s); fmt.Println(s) }',
+  },
+  {
+    language: "rust",
+    version: "1.85",
+    source:
+      'use std::io;\nfn main() { let mut s = String::new(); io::stdin().read_line(&mut s).unwrap(); println!("{}", s.trim()); }',
+  },
+];
+describe("qualified runtime matrix through the real queue", () => {
+  it.each(languageCases)(
+    "executes $language:$version with default limits",
+    async (runtime) => {
+      const r = await wait(
+        await submit(runtime.source, {
+          language: runtime.language,
+          version: runtime.version,
+        }),
+      );
+      expect(r.result.verdict, JSON.stringify(r.result)).toBe("accepted");
+      expect(r.result.stdout).toBe("arena\n");
+      expect(r.events.some((e: any) => e.state === "compiling")).toBe(
+        !["python", "javascript"].includes(runtime.language),
+      );
+    },
+  );
+  it.each(
+    languageCases.filter((r) => !["python", "javascript"].includes(r.language)),
+  )(
+    "persists $language compilation errors without entering running",
+    async (runtime) => {
+      const r = await wait(
+        await submit("this is not valid source !!!", {
+          language: runtime.language,
+          version: runtime.version,
+        }),
+      );
+      expect(r.result.verdict, JSON.stringify(r.result)).toBe(
+        "compilation_error",
+      );
+      expect(r.submission.state).toBe("completed");
+      expect(r.result.compile_output.length).toBeGreaterThan(0);
+      expect(r.events.some((e: any) => e.state === "running")).toBe(false);
+    },
+  );
+});
