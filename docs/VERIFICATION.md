@@ -1,5 +1,11 @@
 # Verification record
 
+## Redis recovery qualification changes
+
+Bounded Redis commands, independent BullMQ worker connections, database cancellation polling, atomic stream retention and a dedicated SSE deadline are implemented. New real-Redis probes cover successful publication, an open connection whose server stops responding, and reconnect after offline rejection. A live two-worker fleet scenario stops the Compose broker during execution, checks completion/cancellation and a retained dispatch outbox, then checks resumption without worker restarts, single completion, usage records and sandbox cleanup.
+
+These new scenarios require a successful workflow run before Redis recovery is counted as qualified. The 73-test evidence below predates these changes. Extended outages, Redis data loss and sustained load remain separate release gates.
+
 ## Verified execution evidence
 
 GitHub Actions run [36735179122](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36735179122), commit `6e49aae39a3b919c1c9943d2b4f18cc18c45ea3e`, completed successfully on 2026-09-30:

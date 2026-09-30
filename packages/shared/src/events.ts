@@ -2,21 +2,41 @@ import { Redis } from "ioredis";
 import type pg from "pg";
 import { canTransition, terminal, type State } from "./domain.js";
 export const redis = new Redis(process.env.REDIS_URL!, {
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: 1,
+  commandTimeout: 1500,
+  enableOfflineQueue: false,
+  autoResendUnfulfilledCommands: false,
 });
+redis.on("error", () => {
+  // Callers handle bounded command failures; reconnect attempts are expected during outages.
+});
+// BullMQ's blocking worker connection must keep retrying. Never use it for HTTP,
+// event publication or cancellation: those operations must finish during an outage.
+export function createWorkerConnection() {
+  const connection = new Redis(process.env.REDIS_URL!, {
+    maxRetriesPerRequest: null,
+  });
+  connection.on("error", () => {});
+  return connection;
+}
 export async function publish(id: string, type: string, data: unknown) {
-  await redis.xadd(
-    `events:${id}`,
-    "MAXLEN",
-    "~",
-    256,
-    "*",
-    "type",
-    type,
-    "data",
-    JSON.stringify(data),
-  );
-  await redis.expire(`events:${id}`, 3600);
+  // PostgreSQL owns state and final output. Live events are best effort and are
+  // reconciled from a fresh snapshot after reconnect, never an execution dependency.
+  if (redis.status !== "ready") return false;
+  try {
+    // Publish and set retention atomically even if the server executes this
+    // command after the caller's deadline. A delayed reply cannot leak a stream.
+    await redis.eval(
+      "local id=redis.call('XADD',KEYS[1],'MAXLEN','~',256,'*','type',ARGV[1],'data',ARGV[2]); redis.call('EXPIRE',KEYS[1],3600); return id",
+      1,
+      `events:${id}`,
+      type,
+      JSON.stringify(data),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 export async function transition(
   c: pg.PoolClient,

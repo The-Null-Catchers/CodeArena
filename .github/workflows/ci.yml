@@ -39,6 +39,8 @@ jobs:
       - run: pnpm test:integration && pnpm test:e2e
       - run: docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d --build --wait worker worker-02
       - run: pnpm test:fleet
+      - run: docker run -d --name codearena-redis-probe -p 127.0.0.1:6380:6379 redis:7.4-bookworm
+      - run: pnpm test:redis
       - if: always()
         run: docker compose -f docker-compose.yml -f docker-compose.workers.yml logs --no-color > compose.log
       - if: always()
