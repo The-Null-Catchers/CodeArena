@@ -17,20 +17,23 @@ export async function consumeAdmissionBudgets(
     String(b.windowSeconds ?? 60),
   ]);
   const script = `
-    local exceeded = 0
     local maxRetry = 0
     for i,key in ipairs(KEYS) do
       local limit = tonumber(ARGV[(i-1)*2+1])
+      local current = tonumber(redis.call('GET', key) or '0')
+      if current >= limit then
+        local remaining = redis.call('TTL', key)
+        if remaining < 1 then remaining = tonumber(ARGV[(i-1)*2+2]) end
+        if remaining > maxRetry then maxRetry = remaining end
+        return {1,maxRetry}
+      end
+    end
+    for i,key in ipairs(KEYS) do
       local ttl = tonumber(ARGV[(i-1)*2+2])
       local current = redis.call('INCR', key)
       if current == 1 then redis.call('EXPIRE', key, ttl) end
-      local remaining = redis.call('TTL', key)
-      if current > limit then
-        exceeded = 1
-        if remaining > maxRetry then maxRetry = remaining end
-      end
     end
-    return {exceeded,maxRetry}
+    return {0,0}
   `;
   const result = (await redis.eval(
     script,
