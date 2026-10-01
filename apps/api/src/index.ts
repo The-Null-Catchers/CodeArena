@@ -25,7 +25,10 @@ import {
   quotaExceeded,
   terminal,
 } from "../../../packages/shared/src/domain.js";
-import { getRuntime } from "../../../packages/shared/src/runtimes.js";
+import {
+  getRuntime,
+  snapshotRuntime,
+} from "../../../packages/shared/src/runtimes.js";
 import { captureJudgingSnapshot } from "../../../packages/shared/src/judging-snapshot.js";
 import { registerAuth, actor, authorize, hash } from "./auth.js";
 export const app = Fastify({
@@ -326,6 +329,18 @@ const create = async (req: any, body: unknown) => {
           { statusCode: 400 },
         );
     }
+    const image = (
+      await c.query(
+        "SELECT wr.image_id FROM worker_runtimes wr JOIN workers w ON w.id=wr.worker_id WHERE wr.runtime_id=$1 AND wr.image_id IS NOT NULL ORDER BY (w.status='online' AND w.last_heartbeat>now()-interval '15 seconds') DESC,w.last_heartbeat DESC,w.id LIMIT 1",
+        [r.id],
+      )
+    ).rows[0];
+    if (!image)
+      throw Object.assign(
+        new Error("Runtime image has not been registered by a worker"),
+        { statusCode: 400 },
+      );
+    const definition = snapshotRuntime(r, image.image_id);
     const row = (
       await c.query(
         "INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,priority,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'created') RETURNING id",
@@ -342,6 +357,10 @@ const create = async (req: any, body: unknown) => {
         ],
       )
     ).rows[0];
+    await c.query(
+      "UPDATE submissions SET runtime_image_id=$2,runtime_definition=$3,runtime_snapshot_origin='admission' WHERE id=$1",
+      [row.id, image.image_id, JSON.stringify(definition)],
+    );
     if (b.mode === "challenge")
       await captureJudgingSnapshot(c, row.id, challenge.id, challenge.judge);
     await c.query(

@@ -1,6 +1,9 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { DockerBackend } from "../../packages/shared/src/sandbox.js";
-import { getRuntime } from "../../packages/shared/src/runtimes.js";
+import {
+  getRuntime,
+  snapshotRuntime,
+} from "../../packages/shared/src/runtimes.js";
 import { limitSchema } from "../../packages/shared/src/domain.js";
 const backend = new DockerBackend(),
   r = getRuntime("python", "3.13");
@@ -21,6 +24,34 @@ async function run(source: string, overrides: Record<string, number> = {}) {
   );
 }
 describe("real Docker security boundaries (no mocks)", () => {
+  it("executes a captured content ID despite a changed deployment override", async () => {
+    const image = await backend.docker.getImage(r.image).inspect();
+    const captured = snapshotRuntime(r, image.Id);
+    const previous = process.env.RUNTIME_IMAGE_PYTHON;
+    try {
+      process.env.RUNTIME_IMAGE_PYTHON =
+        "codearena-nonexistent-runtime:override";
+      const result = await backend.run(
+        captured,
+        "print('pinned')",
+        "",
+        limitSchema.parse({}),
+        new AbortController().signal,
+        () => {},
+        async () => {},
+        {
+          "codearena.worker": "security-test",
+          "codearena.submission": crypto.randomUUID(),
+        },
+      );
+      expect(result.verdict).toBe("accepted");
+      expect(result.stdout).toBe("pinned\n");
+      expect(result.imageId).toBe(image.Id);
+    } finally {
+      if (previous === undefined) delete process.env.RUNTIME_IMAGE_PYTHON;
+      else process.env.RUNTIME_IMAGE_PYTHON = previous;
+    }
+  });
   it("runs non-root with no Docker socket or host files", async () => {
     const s = await run(
       "import os\nprint(os.getuid())\nprint(os.path.exists('/var/run/docker.sock'))\nprint(os.path.exists('/etc/codearena-host-sentinel'))\n",

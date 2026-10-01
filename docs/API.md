@@ -141,4 +141,12 @@ Challenge creation accepts an optional `languages` array containing one or more 
 
 Challenge submissions capture ordered test inputs, expected outputs, visibility, weights, group labels and per-test limits together with the judge strategy, in the admission transaction before queueing. Worker execution, retries and result details use this immutable capture, even if original tests are edited or deleted. Public responses never include captured inputs/expected outputs. Submission metadata includes `judge_strategy`, `test_snapshot_hash`, `test_snapshot_origin` and `test_snapshot_at`; test results include captured weight/group metadata. The hash covers the strategy and ordered test records.
 
-Existing submissions migrated from older releases have `test_snapshot_origin=legacy-backfill` and a null hash: the backfill captures currently available definitions and cannot prove what ran historically. New captures use `admission`. Runtime image digest pinning and challenge revision editing remain separate roadmap items.
+Existing submissions migrated from older releases have `test_snapshot_origin=legacy-backfill` and a null hash: the backfill captures currently available definitions and cannot prove what ran historically. New captures use `admission`. Challenge revision editing remains a separate roadmap item.
+
+## Reproducible runtime admission
+
+New submissions require a runtime image previously registered by an upgraded worker. If no image identity is known for that runtime, admission returns 400 rather than capturing a mutable tag. Offline workers may supply a previously known image identity; such submissions remain queued until a compatible online worker returns. Scheduling requires the exact captured Docker content ID.
+
+Submission detail includes `runtime_image_id`, `runtime_definition` (source filename, compile/execute commands, allowlisted environment and version) and `runtime_snapshot_origin`. New submissions use `admission`; migrated pending submissions use `legacy-first-claim` when an upgraded worker first accepts them. These fields become immutable after pinning. Historical completed submissions remain unqualified rather than inventing a previously used image.
+
+Worker deployment overrides are resolved during registration and cannot replace an admitted image. Keep captured images installed for the submission lifetime; missing images fail execution instead of falling back to a mutable tag. Content IDs qualify the local Docker image/config and layers, not an upstream signature, host kernel, CPU architecture or bit-for-bit timing reproducibility. Review upstream provenance and retain registry artifacts independently.

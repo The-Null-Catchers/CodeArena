@@ -60,3 +60,9 @@ Run `pnpm test:redis` with a dedicated Redis on port 6380 (or set `TEST_REDIS_UR
 Before applying migration 004 to an existing deployment, stop admission, drain workers, then stop the scheduler/API. Back up PostgreSQL and migrate before restarting every API/worker instance on the new version. Do not run mixed old/new worker versions: old workers read mutable challenge tables. This migration copies current tests for historical submissions and labels them `legacy-backfill`; it cannot recover historical edits.
 
 Submission test captures and captured judge metadata reject mutation. Future challenge editors must lock the challenge row before updating its tests or language policy. Tests may be replaced in challenge tables without changing admitted executions. Preserve captured data for the submission retention lifetime; deletion/retention needs an explicit audited migration rather than bypassing triggers in request handlers.
+
+## Runtime image retention and upgrade
+
+Apply migration 005 with API, scheduler and workers stopped/drained; restart all control services on the new version. Workers resolve configured tags/digests to Docker content IDs at startup and advertise those IDs. Register at least one worker for each runtime before accepting new submissions. New snapshots retain their complete execution definition and never resolve the tag again.
+
+Retain images referenced by submissions on compatible worker hosts. Rebuilding a tag may produce a new ID; existing queued/retried submissions require the old ID and stay queued if no worker advertises it. To serve both versions, use distinct worker identities configured for their retained image. Existing completed jobs have no retroactive guarantee; legacy pending jobs bind their first upgraded claim explicitly. Separate architecture/host-kernel and supply-chain qualification remains required.

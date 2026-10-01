@@ -206,6 +206,15 @@ describe("qualified runtime matrix through the real queue", () => {
       );
       expect(r.result.verdict, JSON.stringify(r.result)).toBe("accepted");
       expect(r.result.stdout).toBe("arena\n");
+      expect(r.submission.runtime_snapshot_origin).toBe("admission");
+      expect(r.submission.runtime_image_id).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(r.submission.runtime_definition.id).toBe(
+        `${runtime.language}:${runtime.version}`,
+      );
+      expect(
+        r.events.find((event: any) => event.state === "completed").metadata
+          .imageId,
+      ).toBe(r.submission.runtime_image_id);
       expect(r.events.some((e: any) => e.state === "compiling")).toBe(
         !["python", "javascript"].includes(runtime.language),
       );
