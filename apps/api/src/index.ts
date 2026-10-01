@@ -189,6 +189,62 @@ app.post("/v1/projects", async (req, reply) => {
   reply.code(201);
   return project;
 });
+app.patch("/v1/projects/:id/limits", async (req) => {
+  const id = z
+    .string()
+    .uuid()
+    .parse((req.params as any).id);
+  const b = z
+    .object({
+      maxConcurrent: z.number().int().min(1).max(64).optional(),
+      maxOutstanding: z.number().int().min(1).max(100).optional(),
+      maxDaily: z.number().int().min(1).max(100000).optional(),
+      submissionsPerMinute: z.number().int().min(1).max(1000).optional(),
+      maxPriority: z.enum(["low", "normal", "high", "system"]).optional(),
+    })
+    .strict()
+    .refine((value) => Object.keys(value).length > 0, "At least one limit required")
+    .parse(req.body);
+  const a = await actor(req);
+  await authorize(a, id, "submissions:write", true);
+  return tx(async (client) => {
+    const current = (
+      await client.query(
+        "SELECT max_concurrent,max_outstanding,max_daily,submissions_per_minute,max_priority FROM projects WHERE id=$1 FOR UPDATE",
+        [id],
+      )
+    ).rows[0];
+    if (!current)
+      throw Object.assign(new Error("Project not found"), { statusCode: 404 });
+    const next = {
+      maxConcurrent: b.maxConcurrent ?? current.max_concurrent,
+      maxOutstanding: b.maxOutstanding ?? current.max_outstanding,
+      maxDaily: b.maxDaily ?? current.max_daily,
+      submissionsPerMinute:
+        b.submissionsPerMinute ?? current.submissions_per_minute,
+      maxPriority: b.maxPriority ?? current.max_priority,
+    };
+    const row = (
+      await client.query(
+        "UPDATE projects SET max_concurrent=$2,max_outstanding=$3,max_daily=$4,submissions_per_minute=$5,max_priority=$6 WHERE id=$1 RETURNING id,max_concurrent,max_outstanding,max_daily,submissions_per_minute,max_priority",
+        [
+          id,
+          next.maxConcurrent,
+          next.maxOutstanding,
+          next.maxDaily,
+          next.submissionsPerMinute,
+          next.maxPriority,
+        ],
+      )
+    ).rows[0];
+    await audit(client, "project.limits.update", a.userId!, id, {
+      previous: current,
+      next: row,
+    });
+    return row;
+  });
+});
+
 app.post("/v1/challenges", async (req, reply) => {
   const a = await actor(req);
   const b = z
@@ -790,6 +846,7 @@ app.post("/v1/api-keys", async (req, reply) => {
         )
         .min(1),
       expiresAt: z.string().datetime().optional(),
+      submissionsPerMinute: z.number().int().min(1).max(1000).default(60),
     })
     .parse(req.body);
   const a = await actor(req);
@@ -797,7 +854,7 @@ app.post("/v1/api-keys", async (req, reply) => {
   const secret = "ca_live_" + randomBytes(32).toString("base64url");
   const id = await tx(async (c) => {
     const row = await c.query(
-      "INSERT INTO api_keys(project_id,name,prefix,secret_hash,scopes,expires_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
+      "INSERT INTO api_keys(project_id,name,prefix,secret_hash,scopes,expires_at,submissions_per_minute) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
       [
         b.projectId,
         b.name,
@@ -805,6 +862,7 @@ app.post("/v1/api-keys", async (req, reply) => {
         hash(secret),
         b.scopes,
         b.expiresAt || null,
+        b.submissionsPerMinute,
       ],
     );
     await audit(c, "api_key.create", a.userId!, row.rows[0].id);
@@ -821,7 +879,7 @@ app.get("/v1/api-keys", async (req) => {
   return {
     items: (
       await pool.query(
-        "SELECT id,name,prefix,scopes,last_used_at,expires_at,revoked_at FROM api_keys WHERE project_id=$1",
+        "SELECT id,name,prefix,scopes,submissions_per_minute,last_used_at,expires_at,revoked_at FROM api_keys WHERE project_id=$1",
         [projectId],
       )
     ).rows,
