@@ -4,6 +4,7 @@ import pg from "pg";
 const base = process.env.API_URL || "http://localhost:4000";
 let access = "",
   project = "",
+  organization = "",
   otherAccess = "",
   refresh = "";
 async function call(
@@ -30,7 +31,9 @@ beforeAll(async () => {
   expect(r.status).toBe(201);
   access = r.body.accessToken;
   refresh = r.body.refreshToken;
-  project = (await call("/v1/projects")).body.items[0].id;
+  const defaultProject = (await call("/v1/projects")).body.items[0];
+  project = defaultProject.id;
+  organization = defaultProject.organization_id;
   const other = await call("/v1/auth/register", {
     email: `tenant-${crypto.randomUUID()}@example.com`,
     password: "Real-transaction-test-123",
@@ -89,6 +92,151 @@ describe("real PostgreSQL + Redis API boundaries", () => {
       }
     }
   });
+  it("enforces per-user and per-project submission budgets", async () => {
+    const email = `budget-${crypto.randomUUID()}@example.com`;
+    const registered = await call("/v1/auth/register", {
+      email,
+      password: "Real-transaction-test-123",
+    });
+    expect(registered.status).toBe(201);
+    const token = registered.body.accessToken;
+    const budgetProject = (await call("/v1/projects", undefined, token)).body
+      .items[0].id;
+    const db = new pg.Pool({
+      connectionString:
+        process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    const admitted: any[] = [];
+    try {
+      await db.query(
+        "UPDATE users SET submissions_per_minute=2 WHERE email=$1",
+        [email],
+      );
+      await db.query(
+        "UPDATE projects SET submissions_per_minute=100 WHERE id=$1",
+        [budgetProject],
+      );
+      for (let i = 0; i < 3; i += 1)
+        admitted.push(
+          await call(
+            "/v1/submissions",
+            { ...input, projectId: budgetProject },
+            token,
+          ),
+        );
+      expect(admitted.map((r) => r.status)).toEqual([202, 202, 429]);
+    } finally {
+      for (const r of admitted.filter((item) => item.status === 202))
+        await call(
+          `/v1/submissions/${r.body.id}/cancel`,
+          {},
+          token,
+        );
+      await db.end();
+    }
+  });
+
+  it("enforces API-key-specific admission budgets", async () => {
+    const key = (
+      await call("/v1/api-keys", {
+        projectId: project,
+        name: "Rate limited executor",
+        scopes: ["submissions:create", "submissions:read"],
+      })
+    ).body;
+    const db = new pg.Pool({
+      connectionString:
+        process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    let first: any;
+    try {
+      await db.query(
+        "UPDATE api_keys SET submissions_per_minute=1 WHERE id=$1",
+        [key.id],
+      );
+      first = await call(
+        "/v1/submissions",
+        { ...input, projectId: project },
+        key.secret,
+      );
+      const second = await call(
+        "/v1/submissions",
+        { ...input, projectId: project },
+        key.secret,
+      );
+      expect(first.status).toBe(202);
+      expect(second.status).toBe(429);
+    } finally {
+      if (first?.status === 202)
+        await call(`/v1/submissions/${first.body.id}/cancel`, {});
+      await call(`/v1/api-keys/${key.id}`, undefined, access, "DELETE");
+      await db.end();
+    }
+  });
+
+  it("keeps excess tenant executions queued at the concurrency cap", async () => {
+    const created = await call("/v1/projects", {
+      organizationId: organization,
+      name: `Concurrency ${crypto.randomUUID()}`,
+    });
+    expect(created.status).toBe(201);
+    const cappedProject = created.body.id;
+    const db = new pg.Pool({
+      connectionString:
+        process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    const submissions: any[] = [];
+    try {
+      await db.query(
+        "UPDATE projects SET max_concurrent=1,max_outstanding=10 WHERE id=$1",
+        [cappedProject],
+      );
+      for (let i = 0; i < 3; i += 1)
+        submissions.push(
+          await call("/v1/submissions", {
+            ...input,
+            source: "import time; time.sleep(4); print(1)",
+            limits: { wallTimeMs: 6000 },
+            projectId: cappedProject,
+          }),
+        );
+      expect(submissions.every((r) => r.status === 202)).toBe(true);
+
+      let observedBound = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const states = (
+          await db.query(
+            "SELECT state,count(*)::int AS count FROM submissions WHERE project_id=$1 GROUP BY state",
+            [cappedProject],
+          )
+        ).rows;
+        const active = states
+          .filter((row) =>
+            ["scheduled", "preparing", "compiling", "running", "judging"].includes(
+              row.state,
+            ),
+          )
+          .reduce((sum, row) => sum + row.count, 0);
+        const queued =
+          states.find((row) => row.state === "queued")?.count || 0;
+        expect(active).toBeLessThanOrEqual(1);
+        if (active === 1 && queued >= 1) {
+          observedBound = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(observedBound).toBe(true);
+    } finally {
+      for (const submission of submissions.filter((r) => r.status === 202))
+        await call(`/v1/submissions/${submission.body.id}/cancel`, {});
+      await db.end();
+    }
+  });
+
   it("persists cancellation exactly once", async () => {
     const id = (await call("/v1/submissions", { ...input, projectId: project }))
       .body.id;
