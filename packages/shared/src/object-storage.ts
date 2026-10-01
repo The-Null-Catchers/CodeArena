@@ -96,7 +96,10 @@ export class S3CompatibleStorage implements ObjectStorage {
         authorization:
           `AWS4-HMAC-SHA256 Credential=${this.accessKey}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
       },
-      body: ["GET", "HEAD"].includes(method) ? undefined : body,
+      body:
+        ["GET", "HEAD"].includes(method)
+          ? undefined
+          : new Blob([new Uint8Array(body)]),
       signal: AbortSignal.timeout(10_000),
     });
   }
