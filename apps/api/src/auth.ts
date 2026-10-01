@@ -7,7 +7,12 @@ import { z } from "zod";
 import { pool, tx, audit } from "../../../packages/db/src/index.js";
 export const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
-export type Actor = { userId?: string; projectId?: string; scopes?: string[] };
+export type Actor = {
+  userId?: string;
+  projectId?: string;
+  apiKeyId?: string;
+  scopes?: string[];
+};
 export async function actor(req: FastifyRequest): Promise<Actor> {
   const token = req.headers.authorization?.replace(/^Bearer /, "");
   if (!token)
@@ -17,13 +22,13 @@ export async function actor(req: FastifyRequest): Promise<Actor> {
   if (token.startsWith("ca_")) {
     const k = (
       await pool.query(
-        "UPDATE api_keys SET last_used_at=now() WHERE secret_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) RETURNING project_id,scopes",
+        "UPDATE api_keys SET last_used_at=now() WHERE secret_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) RETURNING id,project_id,scopes",
         [hash(token)],
       )
     ).rows[0];
     if (!k)
       throw Object.assign(new Error("Invalid API key"), { statusCode: 401 });
-    return { projectId: k.project_id, scopes: k.scopes };
+    return { apiKeyId: k.id, projectId: k.project_id, scopes: k.scopes };
   }
   const payload = await req.jwtVerify<{ sub: string; sid: string }>();
   const valid = await pool.query(
