@@ -355,7 +355,16 @@ const worker = new Worker(
                   stored.sha256,
                 ],
               );
-              if (!inserted.rowCount) await storage.remove(stored.key);
+              if (!inserted.rowCount) {
+                const winner = (
+                  await pool.query(
+                    "SELECT object_key FROM compilation_cache WHERE cache_key=$1",
+                    [cacheKey],
+                  )
+                ).rows[0];
+                if (winner?.object_key && winner.object_key !== stored.key)
+                  await storage.remove(stored.key);
+              }
               cachePersisted = true;
             } catch (error) {
               console.error(
