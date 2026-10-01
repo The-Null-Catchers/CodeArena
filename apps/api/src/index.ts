@@ -523,6 +523,10 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
   reply.raw.write(
     `event: snapshot\ndata: ${JSON.stringify(initialSnapshot)}\n\n`,
   );
+  if (terminal.has(initialSnapshot.state)) {
+    reply.raw.end();
+    return;
+  }
   reply.raw.on("close", () => {
     closed = true;
     clearInterval(keepAlive);
