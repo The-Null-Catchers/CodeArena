@@ -50,7 +50,7 @@ export class S3CompatibleStorage implements ObjectStorage {
   private async request(
     method: string,
     key = "",
-    body = Buffer.alloc(0),
+    body: Buffer = Buffer.alloc(0),
     contentType = "application/octet-stream",
   ) {
     const now = new Date();
