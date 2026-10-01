@@ -112,7 +112,6 @@ export const runtimes = [
       "Main",
     ],
     ["javac", "Main.java"],
-    ["Main.class"],
   ),
   runtime(
     "go",
