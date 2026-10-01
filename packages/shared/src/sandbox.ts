@@ -303,15 +303,55 @@ export class DockerBackend implements ExecutionBackend {
           exitCode = await stage(r.compile, true);
           if (exitCode !== 0) reason ??= "compilation_error";
           if (!reason && r.cacheFiles?.length === 1) {
-            phase = "cache-export";
-            const stream = await container.getArchive({
-              path: `/workspace/${r.cacheFiles[0]}`,
+            phase = "cache-export-create";
+            const exportExec = await container.exec({
+              AttachStdout: true,
+              AttachStderr: true,
+              User: "65532:65532",
+              WorkingDir: "/workspace",
+              Cmd: ["tar", "-cf", "-", r.cacheFiles[0]],
+            });
+            const exportStream = await exportExec.start({
+              hijack: true,
+              stdin: false,
             });
             const chunks: Buffer[] = [];
-            for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+            const stderrChunks: Buffer[] = [];
+            const stdoutSink = new Writable({
+              write: (buf: Buffer, _encoding, done) => {
+                chunks.push(Buffer.from(buf));
+                done();
+              },
+            });
+            const stderrSink = new Writable({
+              write: (buf: Buffer, _encoding, done) => {
+                stderrChunks.push(Buffer.from(buf));
+                done();
+              },
+            });
+            phase = "cache-export-stream";
+            this.docker.modem.demuxStream(
+              exportStream,
+              stdoutSink,
+              stderrSink,
+            );
+            await new Promise<void>((resolve, reject) => {
+              exportStream.on("end", resolve);
+              exportStream.on("close", resolve);
+              exportStream.on("error", reject);
+            });
+            if ((await exportExec.inspect()).ExitCode !== 0)
+              throw new Error(
+                `COMPILE_CACHE_EXPORT_FAILED:${Buffer.concat(
+                  stderrChunks,
+                ).toString("utf8")}`,
+              );
             compiledArtifact = Buffer.concat(chunks);
-            if (compiledArtifact.byteLength > 32 * 1024 * 1024)
-              throw new Error("COMPILE_CACHE_ARTIFACT_TOO_LARGE");
+            if (
+              !compiledArtifact.byteLength ||
+              compiledArtifact.byteLength > 32 * 1024 * 1024
+            )
+              throw new Error("COMPILE_CACHE_ARTIFACT_INVALID_SIZE");
           }
         }
       }
