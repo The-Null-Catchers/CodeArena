@@ -1,5 +1,6 @@
 import { limitedFetch } from "./http.js";
 import { beforeAll, describe, it, expect } from "vitest";
+import pg from "pg";
 const base = process.env.API_URL || "http://localhost:4000";
 let access = "",
   project = "",
@@ -54,20 +55,39 @@ describe("real PostgreSQL + Redis API boundaries", () => {
       ).status,
     ).toBe(403));
   it("reserves quota atomically under concurrent creation", async () => {
-    const results = await Promise.all(
-      Array.from({ length: 24 }, () =>
-        call("/v1/submissions", {
-          ...input,
-          source: "while True: pass",
-          limits: { wallTimeMs: 15000 },
-          projectId: project,
-        }),
-      ),
-    );
-    expect(results.filter((r) => r.status === 202)).toHaveLength(20);
-    expect(results.filter((r) => r.status === 429)).toHaveLength(4);
-    for (const r of results.filter((r) => r.status === 202))
-      await call(`/v1/submissions/${r.body.id}/cancel`, {});
+    const db = new pg.Pool({
+      connectionString:
+        process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    const lock = await db.connect();
+    let results: { status: number; body: any }[] = [];
+    try {
+      // Keep every admitted job outstanding. Global IP throttling can delay
+      // requests long enough for live executions to finish and free real quota.
+      await lock.query("SELECT pg_advisory_lock(908302)");
+      results = await Promise.all(
+        Array.from({ length: 24 }, () =>
+          call("/v1/submissions", {
+            ...input,
+            source: "while True: pass",
+            limits: { wallTimeMs: 15000 },
+            projectId: project,
+          }),
+        ),
+      );
+      expect(results.filter((r) => r.status === 202)).toHaveLength(20);
+      expect(results.filter((r) => r.status === 429)).toHaveLength(4);
+    } finally {
+      try {
+        for (const r of results.filter((r) => r.status === 202))
+          await call(`/v1/submissions/${r.body.id}/cancel`, {});
+      } finally {
+        await lock.query("SELECT pg_advisory_unlock(908302)");
+        lock.release();
+        await db.end();
+      }
+    }
   });
   it("persists cancellation exactly once", async () => {
     const id = (await call("/v1/submissions", { ...input, projectId: project }))
