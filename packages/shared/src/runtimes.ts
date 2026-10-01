@@ -7,6 +7,7 @@ export interface RuntimeDefinition {
   sourceFile: string;
   image: string;
   compile?: string[];
+  cacheFiles?: string[];
   execute: string[];
   environment: string[];
   limits: Limits;
@@ -26,6 +27,7 @@ function runtime(
   sourceFile: string,
   execute: string[],
   compile?: string[],
+  cacheFiles?: string[],
 ): RuntimeDefinition {
   return {
     id: `${language}:${version}`,
@@ -36,6 +38,7 @@ function runtime(
     image: `codearena-runtime-${language}:${version}`,
     execute,
     compile,
+    cacheFiles,
     limits,
     environment: [
       "PATH=/opt/java/openjdk/bin:/usr/local/go/bin:/usr/local/cargo/bin:/usr/local/bin:/usr/bin:/bin",
@@ -76,6 +79,7 @@ export const runtimes = [
       "commonjs",
       "--skipLibCheck",
     ],
+    ["main.js"],
   ),
   runtime(
     "c",
@@ -84,6 +88,7 @@ export const runtimes = [
     "main.c",
     ["./main"],
     ["gcc", "main.c", "-O2", "-o", "main"],
+    ["main"],
   ),
   runtime(
     "cpp",
@@ -92,6 +97,7 @@ export const runtimes = [
     "main.cpp",
     ["./main"],
     ["g++", "main.cpp", "-O2", "-std=c++20", "-o", "main"],
+    ["main"],
   ),
   runtime(
     "java",
@@ -106,6 +112,7 @@ export const runtimes = [
       "Main",
     ],
     ["javac", "Main.java"],
+    ["Main.class"],
   ),
   runtime(
     "go",
@@ -114,6 +121,7 @@ export const runtimes = [
     "main.go",
     ["./main"],
     ["/usr/local/bin/codearena-go-compile"],
+    ["main"],
   ),
   runtime(
     "rust",
@@ -122,6 +130,7 @@ export const runtimes = [
     "main.rs",
     ["./main"],
     ["rustc", "main.rs", "-O", "-o", "main"],
+    ["main"],
   ),
 ];
 export function getRuntime(language: string, version: string) {
