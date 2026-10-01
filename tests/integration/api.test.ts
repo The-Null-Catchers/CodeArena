@@ -113,10 +113,16 @@ describe("real PostgreSQL + Redis API boundaries", () => {
         "UPDATE users SET submissions_per_minute=2 WHERE email=$1",
         [email],
       );
-      await db.query(
-        "UPDATE projects SET submissions_per_minute=100 WHERE id=$1",
-        [budgetProject],
-      );
+      expect(
+        (
+          await call(
+            `/v1/projects/${budgetProject}/limits`,
+            { submissionsPerMinute: 100 },
+            token,
+            "PATCH",
+          )
+        ).status,
+      ).toBe(200);
       for (let i = 0; i < 3; i += 1)
         admitted.push(
           await call(
@@ -143,19 +149,11 @@ describe("real PostgreSQL + Redis API boundaries", () => {
         projectId: project,
         name: "Rate limited executor",
         scopes: ["submissions:create", "submissions:read"],
+        submissionsPerMinute: 1,
       })
     ).body;
-    const db = new pg.Pool({
-      connectionString:
-        process.env.DATABASE_URL ||
-        "postgresql://codearena:development-db-password@localhost:5432/codearena",
-    });
     let first: any;
     try {
-      await db.query(
-        "UPDATE api_keys SET submissions_per_minute=1 WHERE id=$1",
-        [key.id],
-      );
       first = await call(
         "/v1/submissions",
         { ...input, projectId: project },
@@ -172,7 +170,6 @@ describe("real PostgreSQL + Redis API boundaries", () => {
       if (first?.status === 202)
         await call(`/v1/submissions/${first.body.id}/cancel`, {});
       await call(`/v1/api-keys/${key.id}`, undefined, access, "DELETE");
-      await db.end();
     }
   });
 
@@ -190,10 +187,16 @@ describe("real PostgreSQL + Redis API boundaries", () => {
     });
     const submissions: any[] = [];
     try {
-      await db.query(
-        "UPDATE projects SET max_concurrent=1,max_outstanding=10 WHERE id=$1",
-        [cappedProject],
-      );
+      expect(
+        (
+          await call(
+            `/v1/projects/${cappedProject}/limits`,
+            { maxConcurrent: 1, maxOutstanding: 10 },
+            access,
+            "PATCH",
+          )
+        ).status,
+      ).toBe(200);
       for (let i = 0; i < 3; i += 1)
         submissions.push(
           await call("/v1/submissions", {
