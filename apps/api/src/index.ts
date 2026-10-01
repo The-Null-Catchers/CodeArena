@@ -34,6 +34,7 @@ import {
   objectStorage,
   objectStorageEnabled,
 } from "../../../packages/shared/src/object-storage.js";
+import { consumeAdmissionBudgets } from "../../../packages/shared/src/admission-budget.js";
 import { registerAuth, actor, authorize, hash } from "./auth.js";
 export const app = Fastify({
   bodyLimit: 160 * 1024,
@@ -76,13 +77,17 @@ app.addHook("onResponse", async (req, reply) => {
   latency.observe({ route }, reply.elapsedTime / 1000);
 });
 app.setErrorHandler((unknownError, req, reply) => {
-  const e = unknownError as Error & { statusCode?: number };
+  const e = unknownError as Error & {
+    statusCode?: number;
+    retryAfter?: number;
+  };
   const status =
     e instanceof ZodError
       ? 400
       : e.statusCode || ((e as any).code === "23505" ? 409 : 500);
   if (status >= 500)
     req.log.error({ err: e, request_id: req.id }, "Request failed");
+  if (e.retryAfter) reply.header("Retry-After", String(e.retryAfter));
   reply.code(status).send({
     error: {
       code:
@@ -279,6 +284,37 @@ const create = async (req: any, body: unknown) => {
     b = submissionSchema.parse(body),
     r = getRuntime(b.language, b.version);
   await authorize(a, b.projectId, "submissions:create");
+  const [projectBudget, identityBudget] = await Promise.all([
+    pool.query(
+      "SELECT submissions_per_minute FROM projects WHERE id=$1",
+      [b.projectId],
+    ),
+    a.apiKeyId
+      ? pool.query(
+          "SELECT submissions_per_minute FROM api_keys WHERE id=$1",
+          [a.apiKeyId],
+        )
+      : pool.query(
+          "SELECT submissions_per_minute FROM users WHERE id=$1",
+          [a.userId],
+        ),
+  ]);
+  if (!projectBudget.rowCount || !identityBudget.rowCount)
+    throw Object.assign(new Error("Admission identity unavailable"), {
+      statusCode: 403,
+    });
+  await consumeAdmissionBudgets(redis, [
+    {
+      key: `project:${b.projectId}`,
+      limit: projectBudget.rows[0].submissions_per_minute,
+    },
+    {
+      key: a.apiKeyId
+        ? `api-key:${a.apiKeyId}`
+        : `user:${a.userId}`,
+      limit: identityBudget.rows[0].submissions_per_minute,
+    },
+  ]);
   const id = await tx(async (c) => {
     const p = (
       await c.query("SELECT * FROM projects WHERE id=$1 FOR UPDATE", [
