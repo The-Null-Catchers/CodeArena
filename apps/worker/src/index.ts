@@ -11,7 +11,12 @@ import {
   transition,
 } from "../../../packages/shared/src/events.js";
 import { DockerBackend } from "../../../packages/shared/src/sandbox.js";
-import { runtimes, getRuntime } from "../../../packages/shared/src/runtimes.js";
+import {
+  runtimes,
+  getRuntime,
+  snapshotRuntime,
+  runtimeImage,
+} from "../../../packages/shared/src/runtimes.js";
 import { judge, terminal } from "../../../packages/shared/src/domain.js";
 const controllers = new Map<string, AbortController>();
 const backend = new DockerBackend();
@@ -34,14 +39,16 @@ identity.on("error", () => {
   process.exitCode = 1;
 });
 const available: string[] = [];
+const availableImages = new Map<string, string>();
 for (const r of runtimes) {
   try {
-    await backend.docker
+    const image = await backend.docker
       .getImage(
         process.env[`RUNTIME_IMAGE_${r.language.toUpperCase()}`] || r.image,
       )
       .inspect();
     available.push(r.id);
+    availableImages.set(r.id, image.Id);
   } catch {
     /* unavailable images are never advertised */
   }
@@ -62,10 +69,10 @@ await tx(async (c) => {
     config.WORKER_ID,
   ]);
   for (const id of available)
-    await c.query("INSERT INTO worker_runtimes VALUES($1,$2)", [
-      config.WORKER_ID,
-      id,
-    ]);
+    await c.query(
+      "INSERT INTO worker_runtimes(worker_id,runtime_id,image_id) VALUES($1,$2,$3)",
+      [config.WORKER_ID, id, availableImages.get(id)],
+    );
 });
 const registry = new Registry();
 collectDefaultMetrics({ register: registry });
@@ -146,6 +153,19 @@ const worker = new Worker(
         );
         return false;
       }
+      if (!s.runtime_image_id) {
+        const [language, version] = s.runtime_id.split(":");
+        const definition = snapshotRuntime(
+          getRuntime(language, version),
+          availableImages.get(s.runtime_id)!,
+        );
+        await c.query(
+          "UPDATE submissions SET runtime_image_id=$2,runtime_definition=$3,runtime_snapshot_origin='legacy-first-claim' WHERE id=$1",
+          [id, definition.image, JSON.stringify(definition)],
+        );
+        s.runtime_image_id = definition.image;
+        s.runtime_definition = definition;
+      }
       await c.query(
         "UPDATE submissions SET lease_until=now()+interval '20 seconds' WHERE id=$1",
         [id],
@@ -186,10 +206,14 @@ const worker = new Worker(
     };
     try {
       if (s.cancel_requested) controller.abort();
-      const r = getRuntime(
-        s.runtime_id.split(":")[0],
-        s.runtime_id.split(":")[1],
-      );
+      const r = s.runtime_definition;
+      if (
+        !r ||
+        r.id !== s.runtime_id ||
+        r.image !== s.runtime_image_id ||
+        runtimeImage(r) !== s.runtime_image_id
+      )
+        throw new Error("INVALID_RUNTIME_SNAPSHOT");
       const cases =
         s.mode === "challenge"
           ? (

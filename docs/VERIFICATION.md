@@ -6,9 +6,13 @@ Bounded Redis commands, independent BullMQ worker connections, database cancella
 
 GitHub Actions run [36751926401](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36751926401), commit `1ff4ec421c6eb0856173f93ab8c0474dfd42e9d4`, passed all three jobs, including the live Redis outage scenario and three dedicated Redis probes. Total: **77 tests passed** (30 unit, 12 sandbox security, 28 integration, one Chromium, three fleet, three Redis). Extended outages, Redis data loss and sustained load remain separate release gates.
 
-## Judging snapshots awaiting final workflow verification
+## Verified judging snapshots
 
-Migration 004, atomic admission captures, SQL immutability guards and optional challenge language restrictions are implemented. Five new integration tests cover an isolated old-schema upgrade fixture, live admission rollback, original test deletion before real execution, preserved score/hidden visibility, mutation guards and later admissions using changed definitions. Local backend TypeScript, ESLint and 30 unit tests passed; live qualification of these new cases is pending the current PR workflow.
+GitHub Actions run [36759232285](https://github.com/The-Null-Catchers/CodeArena/actions/runs/36759232285), commit `a5071eb40ca2cc72d21c717747063b70b534f334`, passed all three jobs and **82 tests** (30 unit, 12 sandbox security, 33 integration, one Chromium, three fleet, three Redis). The five new integration cases qualify migration from an old schema, admission rollback, deletion/replacement of original tests before execution, preserved scoring/hidden visibility, immutable SQL guards and later admissions using changed definitions.
+
+## Runtime snapshot changes
+
+New admissions capture an advertised immutable Docker image ID and the complete trusted runtime definition. Scheduling requires a worker advertising that ID; execution ignores tag/environment overrides for captured IDs. Existing pending submissions are pinned on first claim and labeled `legacy-first-claim`; no historical image is invented for old completed executions. New unit, real-Docker and API/scheduler regressions require green CI before this new behavior is qualified.
 
 ## Verified execution evidence
 

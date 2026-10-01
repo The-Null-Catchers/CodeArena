@@ -71,8 +71,8 @@ async function tick() {
     for (const s of pending.rows) {
       const w = (
         await c.query(
-          "SELECT w.id,w.slots,count(s.id)::int AS active FROM workers w JOIN worker_runtimes wr ON wr.worker_id=w.id AND wr.runtime_id=$1 JOIN runtimes r ON r.id=wr.runtime_id AND r.enabled LEFT JOIN submissions s ON s.worker_id=w.id AND s.state IN ('scheduled','preparing','compiling','running','judging') WHERE w.status='online' AND w.last_heartbeat>now()-interval '15 seconds' GROUP BY w.id HAVING count(s.id)<w.slots ORDER BY count(s.id)::float/w.slots,w.id LIMIT 1",
-          [s.runtime_id],
+          "SELECT w.id,w.slots,count(s.id)::int AS active FROM workers w JOIN worker_runtimes wr ON wr.worker_id=w.id AND wr.runtime_id=$1 JOIN runtimes r ON r.id=wr.runtime_id AND r.enabled LEFT JOIN submissions s ON s.worker_id=w.id AND s.state IN ('scheduled','preparing','compiling','running','judging') WHERE ($2::text IS NULL OR wr.image_id=$2) AND wr.image_id IS NOT NULL AND w.status='online' AND w.last_heartbeat>now()-interval '15 seconds' GROUP BY w.id HAVING count(s.id)<w.slots ORDER BY count(s.id)::float/w.slots,w.id LIMIT 1",
+          [s.runtime_id, s.runtime_image_id],
         )
       ).rows[0];
       if (!w) continue;

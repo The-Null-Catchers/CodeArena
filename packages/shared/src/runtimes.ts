@@ -135,6 +135,18 @@ export function getRuntime(language: string, version: string) {
   return r;
 }
 export function runtimeImage(r: RuntimeDefinition) {
+  // Captured Docker content IDs always take precedence over mutable tags and
+  // deployment overrides. Never silently substitute a different runtime image.
+  if (/^sha256:[0-9a-f]{64}$/.test(r.image)) return r.image;
   const name = `RUNTIME_IMAGE_${r.language.toUpperCase()}`;
   return process.env[name] || r.image;
+}
+
+export function snapshotRuntime(
+  r: RuntimeDefinition,
+  imageId: string,
+): RuntimeDefinition {
+  if (!/^sha256:[0-9a-f]{64}$/.test(imageId))
+    throw new Error("IMMUTABLE_RUNTIME_IMAGE_REQUIRED");
+  return structuredClone({ ...r, image: imageId });
 }
