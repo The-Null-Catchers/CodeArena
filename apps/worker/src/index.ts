@@ -273,6 +273,16 @@ const worker = new Worker(
               [cacheKey],
             );
           } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "UNKNOWN_CACHE_ERROR";
+            if (
+              message === "Artifact not found" ||
+              message === "COMPILE_CACHE_INTEGRITY_MISMATCH"
+            )
+              await pool.query(
+                "DELETE FROM compilation_cache WHERE cache_key=$1",
+                [cacheKey],
+              );
             console.error(
               JSON.stringify({
                 service: "worker",
@@ -280,8 +290,10 @@ const worker = new Worker(
                 submission_id: id,
                 worker_id: config.WORKER_ID,
                 cache_key: cacheKey,
-                error:
-                  error instanceof Error ? error.message : "UNKNOWN_CACHE_ERROR",
+                invalidated:
+                  message === "Artifact not found" ||
+                  message === "COMPILE_CACHE_INTEGRITY_MISMATCH",
+                error: message,
               }),
             );
           }
