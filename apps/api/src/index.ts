@@ -30,6 +30,10 @@ import {
   snapshotRuntime,
 } from "../../../packages/shared/src/runtimes.js";
 import { captureJudgingSnapshot } from "../../../packages/shared/src/judging-snapshot.js";
+import {
+  objectStorage,
+  objectStorageEnabled,
+} from "../../../packages/shared/src/object-storage.js";
 import { registerAuth, actor, authorize, hash } from "./auth.js";
 export const app = Fastify({
   bodyLimit: 160 * 1024,
@@ -438,6 +442,54 @@ app.get("/v1/submissions/:id", async (req) => {
     tests: tests.rows,
   };
 });
+app.get("/v1/submissions/:id/artifacts", async (req) => {
+  const s = await own(req);
+  return {
+    items: (
+      await pool.query(
+        "SELECT id,kind,filename,mime_type,size_bytes,sha256,created_at FROM artifacts WHERE submission_id=$1 ORDER BY created_at,id",
+        [s.id],
+      )
+    ).rows,
+  };
+});
+
+app.get("/v1/artifacts/:id/download", async (req, reply) => {
+  if (!objectStorageEnabled())
+    throw Object.assign(new Error("Object storage unavailable"), {
+      statusCode: 503,
+    });
+  const id = z
+    .string()
+    .uuid()
+    .parse((req.params as any).id);
+  const artifact = (
+    await pool.query(
+      "SELECT id,project_id,object_key,filename,mime_type,size_bytes,sha256 FROM artifacts WHERE id=$1",
+      [id],
+    )
+  ).rows[0];
+  if (!artifact)
+    throw Object.assign(new Error("Artifact not found"), { statusCode: 404 });
+  await authorize(await actor(req), artifact.project_id, "submissions:read");
+  const object = await objectStorage().get(artifact.object_key);
+  if (
+    object.size !== Number(artifact.size_bytes) ||
+    hash(object.body) !== artifact.sha256
+  )
+    throw new Error("ARTIFACT_INTEGRITY_MISMATCH");
+  const safeFilename = String(artifact.filename)
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 120);
+  reply
+    .header("Content-Type", artifact.mime_type)
+    .header("Content-Length", String(object.size))
+    .header("Content-Disposition", `attachment; filename="${safeFilename}"`)
+    .header("X-Content-Type-Options", "nosniff")
+    .header("Cache-Control", "private, no-store");
+  return reply.send(object.body);
+});
+
 app.post("/v1/submissions/:id/cancel", async (req) => {
   const s = await own(req);
   await authorize(await actor(req), s.project_id, "submissions:create");
