@@ -88,6 +88,22 @@ describe("full API → scheduler → Docker flow", () => {
       ]),
     );
   });
+  it("reconciles a terminal SSE reconnect from PostgreSQL", async () => {
+    const id = await submit("print('durable')");
+    const finished = await wait(id);
+    expect(finished.submission.state).toBe("completed");
+
+    const response = await limitedFetch(`${base}/v1/submissions/${id}/events`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    expect(response.ok).toBe(true);
+    const body = await response.text();
+    expect(body).toContain("event: snapshot");
+    expect(body).toContain('"state":"completed"');
+    expect(body).toContain('"verdict":"accepted"');
+    expect(body).toContain("durable\\n");
+  });
   it("enforces execution timeout", async () => {
     const r = await wait(
       await submit("while True:pass", {

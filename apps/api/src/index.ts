@@ -458,7 +458,33 @@ app.post("/v1/submissions/:id/cancel", async (req) => {
   await publish(s.id, "state", { cancelRequested: true });
   return { ok: true };
 });
-// Redis Streams provide output replay without polling the database. State snapshot reconciles expired streams.
+const realtimeSnapshot = async (id: string) => {
+  const row = (
+    await pool.query(
+      "SELECT s.state,r.verdict,r.stdout,r.stderr,r.compile_output,r.exit_code,r.wall_ms,r.cpu_ms,r.peak_memory_bytes,r.output_truncated,r.score FROM submissions s LEFT JOIN submission_results r ON r.submission_id=s.id WHERE s.id=$1",
+      [id],
+    )
+  ).rows[0];
+  if (!row) return null;
+  return {
+    state: row.state,
+    result: row.verdict
+      ? {
+          verdict: row.verdict,
+          stdout: row.stdout,
+          stderr: row.stderr,
+          compileOutput: row.compile_output,
+          exitCode: row.exit_code,
+          wallMs: row.wall_ms,
+          cpuMs: row.cpu_ms,
+          peakMemoryBytes: row.peak_memory_bytes,
+          outputTruncated: row.output_truncated,
+          score: row.score,
+        }
+      : null,
+  };
+};
+// Redis Streams provide low-latency output. PostgreSQL reconciles missed/expired terminal events.
 app.get("/v1/submissions/:id/events", async (req, reply) => {
   const s = await own(req);
   const streamKey = `sse:${s.project_id}`;
@@ -493,15 +519,21 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
     "Access-Control-Allow-Origin": config.WEB_ORIGIN,
     "X-Accel-Buffering": "no",
   });
+  const initialSnapshot = (await realtimeSnapshot(s.id)) || { state: s.state, result: null };
   reply.raw.write(
-    `event: snapshot\ndata: ${JSON.stringify({ state: s.state })}\n\n`,
+    `event: snapshot\ndata: ${JSON.stringify(initialSnapshot)}\n\n`,
   );
+  if (terminal.has(initialSnapshot.state)) {
+    reply.raw.end();
+    return;
+  }
   reply.raw.on("close", () => {
     closed = true;
     clearInterval(keepAlive);
     void redis.zrem(streamKey, req.id).catch(() => {});
     reader.disconnect();
   });
+  let idleReads = 0;
   try {
     await reader.connect();
     while (!closed) {
@@ -516,8 +548,24 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
         cursor,
       )) as any;
       const chunks: string[] = [];
-      if (!records) chunks.push(": heartbeat\n\n");
-      else
+      if (!records) {
+        chunks.push(": heartbeat\n\n");
+        idleReads += 1;
+        // Redis Streams remain the primary transport. Periodic durable reconciliation
+        // prevents a lost/expired terminal event from leaving a client hanging forever.
+        if (idleReads >= 3) {
+          idleReads = 0;
+          const snapshot = await realtimeSnapshot(s.id);
+          if (snapshot && terminal.has(snapshot.state)) {
+            chunks.push(
+              `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`,
+            );
+            for (const chunk of chunks) reply.raw.write(chunk);
+            break;
+          }
+        }
+      } else {
+        idleReads = 0;
         for (const [, entries] of records)
           for (const [id, fields] of entries) {
             cursor = id;
@@ -525,6 +573,7 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
               `id: ${id}\nevent: ${fields[1]}\ndata: ${fields[3]}\n\n`,
             );
           }
+      }
       for (const chunk of chunks) {
         if (closed) break;
         if (!reply.raw.write(chunk))
@@ -535,7 +584,19 @@ app.get("/v1/submissions/:id/events", async (req, reply) => {
       }
     }
   } catch {
-    if (!closed) reply.raw.end();
+    if (!closed) {
+      try {
+        const snapshot = await realtimeSnapshot(s.id);
+        if (snapshot)
+          reply.raw.write(
+            `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`,
+          );
+      } catch {
+        // The stream is already degraded; the normal submission detail endpoint
+        // remains the durable recovery path if PostgreSQL is also unavailable.
+      }
+      reply.raw.end();
+    }
   } finally {
     clearInterval(keepAlive);
     await redis.zrem(streamKey, req.id).catch(() => {});

@@ -319,19 +319,52 @@ export class DockerBackend implements ExecutionBackend {
       clearTimeout(timer);
       clearInterval(sampler);
       signal.removeEventListener("abort", abort);
-      if (container)
-        await container.remove({ force: true, v: true }).catch(() => {});
+      if (container) {
+        try {
+          await container.remove({ force: true, v: true });
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              service: "sandbox",
+              event: "cleanup_failed",
+              submission_id: labels["codearena.submission"],
+              worker_id: labels["codearena.worker"],
+              container_id: container.id,
+              error:
+                error instanceof Error ? error.message : "UNKNOWN_CLEANUP_ERROR",
+            }),
+          );
+        }
+      }
     }
   }
   async reap(workerId: string, live: Set<string>) {
+    let removed = 0;
+    let failed = 0;
     for (const c of await this.docker.listContainers({
       all: true,
       filters: JSON.stringify({
         label: ["codearena.managed=true", `codearena.worker=${workerId}`],
       }),
     })) {
-      if (!live.has(c.Labels["codearena.submission"]))
+      if (live.has(c.Labels["codearena.submission"])) continue;
+      try {
         await this.docker.getContainer(c.Id).remove({ force: true, v: true });
+        removed += 1;
+      } catch (error) {
+        failed += 1;
+        console.error(
+          JSON.stringify({
+            service: "sandbox",
+            event: "reap_failed",
+            worker_id: workerId,
+            submission_id: c.Labels["codearena.submission"],
+            container_id: c.Id,
+            error: error instanceof Error ? error.message : "UNKNOWN_REAP_ERROR",
+          }),
+        );
+      }
     }
+    return { removed, failed };
   }
 }
