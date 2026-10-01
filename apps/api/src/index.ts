@@ -5,7 +5,7 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
 import { z, ZodError } from "zod";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   Counter,
   Histogram,
@@ -475,7 +475,7 @@ app.get("/v1/artifacts/:id/download", async (req, reply) => {
   const object = await objectStorage().get(artifact.object_key);
   if (
     object.size !== Number(artifact.size_bytes) ||
-    hash(object.body) !== artifact.sha256
+    createHash("sha256").update(object.body).digest("hex") !== artifact.sha256
   )
     throw new Error("ARTIFACT_INTEGRITY_MISMATCH");
   const safeFilename = String(artifact.filename)
