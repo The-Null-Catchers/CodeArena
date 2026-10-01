@@ -4,7 +4,7 @@ The execution foundation now has real eight-language and two-worker failure-inje
 
 1. Qualify the deployment host and extended Redis outages/data loss and load behavior; strengthen measured resource accounting and browser reconnect/backoff behavior. Durable SSE terminal reconciliation and structured sandbox cleanup-failure logging are implemented; they still require target-host qualification.
 2. Separate mail/webhook workers; add structured service log correlation, per-user/key/project rate budgets, tenant concurrency plans, and live fleet/queue event streams.
-3. Qualify runtime content-ID snapshots, add safe immutable compilation artifacts, object-storage artifacts with file-count/MIME/size/download policies.
+3. Extend the implemented immutable compilation cache/object-storage foundation with generated-file capture policies, file-count and MIME inspection, retention/garbage collection, Java multi-output caching, and broader artifact UI. Runtime content-ID snapshots, SHA-256 cache verification, compile-log artifacts, bounded authorized downloads, and MinIO/S3-compatible storage are implemented.
 4. Add challenge editing/publishing UI, language restriction UI, tags/templates, richer per-test/group scoring, challenge revision management and runtime-aware leaderboards.
 5. Add full platform administrator operations, role/member management, runtime toggles, session UI, password login protection, and advanced percentile/throughput analytics.
 6. Implement authenticated interview rooms with WebSocket collaboration and server-separated private notes; design the collaboration adapter for eventual CRDT replacement.
