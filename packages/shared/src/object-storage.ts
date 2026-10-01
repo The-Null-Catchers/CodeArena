@@ -102,12 +102,25 @@ export class S3CompatibleStorage implements ObjectStorage {
   }
 
   async ensureBucket() {
-    const head = await this.request("HEAD");
-    if (head.ok) return;
-    if (head.status !== 404) throw new Error(`OBJECT_STORAGE_HEAD_${head.status}`);
-    const created = await this.request("PUT");
-    if (!created.ok && created.status !== 409)
-      throw new Error(`OBJECT_STORAGE_BUCKET_CREATE_${created.status}`);
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        const head = await this.request("HEAD");
+        lastStatus = head.status;
+        if (head.ok) return;
+        if (head.status === 404) {
+          const created = await this.request("PUT");
+          lastStatus = created.status;
+          if (created.ok || created.status === 409) return;
+        } else if (head.status >= 400 && head.status < 500) {
+          throw new Error(`OBJECT_STORAGE_HEAD_${head.status}`);
+        }
+      } catch (error) {
+        if (attempt === 19) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(`OBJECT_STORAGE_NOT_READY_${lastStatus}`);
   }
 
   async put(key: string, body: Buffer, contentType: string) {
