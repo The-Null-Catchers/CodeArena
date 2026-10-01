@@ -210,6 +210,57 @@ const languageCases = [
       'use std::io;\nfn main() { let mut s = String::new(); io::stdin().read_line(&mut s).unwrap(); println!("{}", s.trim()); }',
   },
 ];
+describe("object storage and compilation cache", () => {
+  const cSource =
+    '#include <stdio.h>\nint main(void) { puts("cached"); return 0; }';
+
+  it("reuses an immutable compiled artifact for identical source/runtime", async () => {
+    const first = await wait(
+      await submit(cSource, { language: "c", version: "14", stdin: "" }),
+    );
+    expect(first.result.verdict).toBe("accepted");
+
+    const second = await wait(
+      await submit(cSource, { language: "c", version: "14", stdin: "" }),
+    );
+    expect(second.result.verdict).toBe("accepted");
+    expect(second.result.stdout).toBe("cached\n");
+    expect(second.result.compile_output).toContain("compilation cache hit");
+  });
+
+  it("stores compilation logs as authorized downloadable artifacts", async () => {
+    const result = await wait(
+      await submit("this is invalid C !!!", {
+        language: "c",
+        version: "14",
+        stdin: "",
+      }),
+    );
+    expect(result.result.verdict).toBe("compilation_error");
+
+    const listed = await request(
+      `/v1/submissions/${result.submission.id}/artifacts`,
+    );
+    expect(listed.status).toBe(200);
+    const artifact = listed.data.items.find(
+      (item: any) => item.kind === "compile_log",
+    );
+    expect(artifact).toBeTruthy();
+    expect(Number(artifact.size_bytes)).toBeGreaterThan(0);
+
+    const download = await limitedFetch(
+      `${base}/v1/artifacts/${artifact.id}/download`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-disposition")).toContain(
+      "compile-output.txt",
+    );
+    expect(download.headers.get("x-content-type-options")).toBe("nosniff");
+    expect((await download.text()).length).toBeGreaterThan(0);
+  });
+});
+
 describe("qualified runtime matrix through the real queue", () => {
   it.each(languageCases)(
     "executes $language:$version with default limits",

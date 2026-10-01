@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import { Worker } from "bullmq";
 import { Registry, Gauge, Histogram, collectDefaultMetrics } from "prom-client";
@@ -18,9 +19,17 @@ import {
   runtimeImage,
 } from "../../../packages/shared/src/runtimes.js";
 import { judge, terminal } from "../../../packages/shared/src/domain.js";
+import {
+  objectStorage,
+  objectStorageEnabled,
+} from "../../../packages/shared/src/object-storage.js";
 const controllers = new Map<string, AbortController>();
 const backend = new DockerBackend();
 await backend.check();
+const storage = objectStorageEnabled() ? objectStorage() : undefined;
+if (storage) await storage.ensureBucket();
+const digest = (value: string | Buffer) =>
+  createHash("sha256").update(value).digest("hex");
 if (config.WORKER_SLOTS * 512 > config.WORKER_MEMORY_MB - 512)
   throw new Error(
     "Worker capacity must reserve 512 MB per slot plus host headroom",
@@ -224,6 +233,72 @@ const worker = new Worker(
             ).rows
           : [{ stdin: s.stdin, expected: "", weight: 1 }];
       if (!cases.length) throw new Error("CHALLENGE_HAS_NO_TESTS");
+      const sourceSha = digest(s.source);
+      const compileFingerprint = r.compile
+        ? digest(
+            JSON.stringify({
+              runtimeId: r.id,
+              image: r.image,
+              compile: r.compile,
+              cacheFiles: r.cacheFiles,
+              environment: r.environment,
+            }),
+          )
+        : undefined;
+      const cacheKey =
+        r.compile && compileFingerprint
+          ? digest(`${sourceSha}:${compileFingerprint}`)
+          : undefined;
+      let compiledArtifact: Buffer | undefined;
+      let cachePersisted = false;
+      if (storage && cacheKey) {
+        const cached = (
+          await pool.query(
+            "SELECT object_key,size_bytes,sha256 FROM compilation_cache WHERE cache_key=$1",
+            [cacheKey],
+          )
+        ).rows[0];
+        if (cached) {
+          try {
+            const object = await storage.get(cached.object_key);
+            if (
+              object.size !== Number(cached.size_bytes) ||
+              digest(object.body) !== cached.sha256
+            )
+              throw new Error("COMPILE_CACHE_INTEGRITY_MISMATCH");
+            compiledArtifact = object.body;
+            cachePersisted = true;
+            await pool.query(
+              "UPDATE compilation_cache SET last_used_at=now() WHERE cache_key=$1",
+              [cacheKey],
+            );
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "UNKNOWN_CACHE_ERROR";
+            if (
+              message === "Artifact not found" ||
+              message === "COMPILE_CACHE_INTEGRITY_MISMATCH"
+            )
+              await pool.query(
+                "DELETE FROM compilation_cache WHERE cache_key=$1",
+                [cacheKey],
+              );
+            console.error(
+              JSON.stringify({
+                service: "worker",
+                event: "compile_cache_read_failed",
+                submission_id: id,
+                worker_id: config.WORKER_ID,
+                cache_key: cacheKey,
+                invalidated:
+                  message === "Artifact not found" ||
+                  message === "COMPILE_CACHE_INTEGRITY_MISMATCH",
+                error: message,
+              }),
+            );
+          }
+        }
+      }
       let final: any;
       const testResults: any[] = [];
       const totalWeight = cases.reduce(
@@ -266,7 +341,60 @@ const worker = new Worker(
             "codearena.submission": id,
             "codearena.attempt": String(attempt),
           },
+          compiledArtifact,
         );
+        if (!compiledArtifact && result.compiledArtifact) {
+          compiledArtifact = result.compiledArtifact;
+          if (storage && cacheKey && compileFingerprint && !cachePersisted) {
+            try {
+              const artifactSha = digest(compiledArtifact);
+              const objectKey = `compilation-cache/${cacheKey}/${artifactSha}.tar`;
+              const stored = await storage.put(
+                objectKey,
+                compiledArtifact,
+                "application/x-tar",
+              );
+              const inserted = await pool.query(
+                "INSERT INTO compilation_cache(cache_key,runtime_id,runtime_image_id,source_sha256,compile_fingerprint,object_key,size_bytes,sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(cache_key) DO NOTHING RETURNING cache_key",
+                [
+                  cacheKey,
+                  r.id,
+                  r.image,
+                  sourceSha,
+                  compileFingerprint,
+                  stored.key,
+                  stored.size,
+                  stored.sha256,
+                ],
+              );
+              if (!inserted.rowCount) {
+                const winner = (
+                  await pool.query(
+                    "SELECT object_key FROM compilation_cache WHERE cache_key=$1",
+                    [cacheKey],
+                  )
+                ).rows[0];
+                if (winner?.object_key && winner.object_key !== stored.key)
+                  await storage.remove(stored.key);
+              }
+              cachePersisted = true;
+            } catch (error) {
+              console.error(
+                JSON.stringify({
+                  service: "worker",
+                  event: "compile_cache_write_failed",
+                  submission_id: id,
+                  worker_id: config.WORKER_ID,
+                  cache_key: cacheKey,
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : "UNKNOWN_CACHE_ERROR",
+                }),
+              );
+            }
+          }
+        }
         totalWall += result.wallMs;
         totalCpu += result.cpuMs;
         peak = Math.max(peak, result.peakMemoryBytes);
@@ -322,6 +450,37 @@ const worker = new Worker(
             attempt,
           ),
         );
+      let compileLogArtifact:
+        | {
+            key: string;
+            size: number;
+            sha256: string;
+            contentType: string;
+          }
+        | undefined;
+      if (storage && final?.compileOutput) {
+        try {
+          const body = Buffer.from(final.compileOutput, "utf8");
+          if (body.byteLength <= 10 * 1024 * 1024)
+            compileLogArtifact = await storage.put(
+              `submissions/${id}/compile-output.txt`,
+              body,
+              "text/plain; charset=utf-8",
+            );
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              service: "worker",
+              event: "artifact_store_failed",
+              submission_id: id,
+              worker_id: config.WORKER_ID,
+              kind: "compile_log",
+              error:
+                error instanceof Error ? error.message : "UNKNOWN_ARTIFACT_ERROR",
+            }),
+          );
+        }
+      }
       await tx(async (c) => {
         const row = (
           await c.query("SELECT * FROM submissions WHERE id=$1 FOR UPDATE", [
@@ -365,9 +524,27 @@ const worker = new Worker(
               "INSERT INTO test_results(submission_id,test_case_id,verdict,wall_ms,peak_memory_bytes) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
               [id, t.id, t.verdict, t.wallMs, t.peak],
             );
+        if (compileLogArtifact)
+          await c.query(
+            "INSERT INTO artifacts(submission_id,project_id,kind,object_key,filename,mime_type,size_bytes,sha256) VALUES($1,$2,'compile_log',$3,'compile-output.txt',$4,$5,$6) ON CONFLICT(object_key) DO NOTHING",
+            [
+              id,
+              s.project_id,
+              compileLogArtifact.key,
+              compileLogArtifact.contentType,
+              compileLogArtifact.size,
+              compileLogArtifact.sha256,
+            ],
+          );
         await c.query(
-          "INSERT INTO usage_records(submission_id,project_id,wall_ms,cpu_ms) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING",
-          [id, s.project_id, totalWall, totalCpu],
+          "INSERT INTO usage_records(submission_id,project_id,wall_ms,cpu_ms,artifact_bytes) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+          [
+            id,
+            s.project_id,
+            totalWall,
+            totalCpu,
+            compileLogArtifact?.size || 0,
+          ],
         );
         await transition(
           c,

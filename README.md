@@ -16,7 +16,7 @@ This is an implementation of the execution and judging foundation, not a certifi
 
 Working code includes registration/login and Argon2id passwords; rotating hashed refresh tokens; verification/reset mail outbox; tenant memberships and projects; hashed scoped API keys; eight centrally configured runtime definitions; bounded submissions and batches; transactional quotas; scheduler leases and outbox dispatch; independently constrained execution containers; cancellation; weighted test judging; hidden-output suppression; drafts/history; SSE output replay; encrypted webhook signing secrets and retry delivery; TypeScript SDK/CLI; metrics and dashboards.
 
-Interview collaboration, education, object-storage artifact delivery, compilation cache, advanced analytics, full administrative UI, and challenge leaderboards remain on the explicit [roadmap](docs/ROADMAP.md). MinIO is provisioned but not yet used by an artifact API. Pages display real API data, with honest empty/error states.
+Interview collaboration, education, advanced analytics, full administrative UI, and challenge leaderboards remain on the explicit [roadmap](docs/ROADMAP.md). MinIO now backs authorized immutable compilation-log artifacts and compiled-output caching for supported single-output toolchains. Java cache snapshots remain intentionally disabled until multi-file class output is captured safely. Pages display real API data, with honest empty/error states.
 
 ## Architecture
 
@@ -107,7 +107,7 @@ Build the SDK with `pnpm --dir packages/execution-sdk build`, then use its CLI b
 
 `created → queued → scheduled → preparing → compiling (when needed) → running → judging (challenges) → completed`. Terminal alternatives: `failed`, `cancelled`, `timed_out`. Compilation errors end with a persisted `compilation_error` verdict. Every transition stores timing, reason, attempt fencing, and worker identity when applicable.
 
-Hard maximums: 10,000 CPU ms, 15,000 wall ms per sandbox, 512 MiB memory, 64 processes, 1,024 KiB combined output, and 32,768 KiB writable workspace. Defaults are lower. A challenge test may reduce wall/memory limits; it cannot raise caller or platform limits. Total challenge execution is capped separately. Compilation currently occurs once per test, within that sandbox's budget.
+Hard maximums: 10,000 CPU ms, 15,000 wall ms per sandbox, 512 MiB memory, 64 processes, 1,024 KiB combined output, and 32,768 KiB writable workspace. Defaults are lower. A challenge test may reduce wall/memory limits; it cannot raise caller or platform limits. Total challenge execution is capped separately. Compiled outputs for TypeScript, C, C++, Go, and Rust may be restored from an integrity-checked immutable object cache keyed by source and captured runtime definition. Each restore still lands only in that test's private tmpfs; there is no shared writable build directory. Cache misses compile inside the sandbox and may populate object storage.
 
 Docker limits memory/PIDs/CPU scheduling/filesystem. A worker deadline kills wall-time abuse. CPU time uses both process rlimits and aggregate cgroup sampling; short executions can report zero CPU/memory because measurement is sampled. Do not treat these values as exact billing measurements. See [SECURITY.md](SECURITY.md).
 

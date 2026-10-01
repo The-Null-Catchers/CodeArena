@@ -150,3 +150,24 @@ New submissions require a runtime image previously registered by an upgraded wor
 Submission detail includes `runtime_image_id`, `runtime_definition` (source filename, compile/execute commands, allowlisted environment and version) and `runtime_snapshot_origin`. New submissions use `admission`; migrated pending submissions use `legacy-first-claim` when an upgraded worker first accepts them. These fields become immutable after pinning. Historical completed submissions remain unqualified rather than inventing a previously used image.
 
 Worker deployment overrides are resolved during registration and cannot replace an admitted image. Keep captured images installed for the submission lifetime; missing images fail execution instead of falling back to a mutable tag. Content IDs qualify the local Docker image/config and layers, not an upstream signature, host kernel, CPU architecture or bit-for-bit timing reproducibility. Review upstream provenance and retain registry artifacts independently.
+
+
+## Submission artifacts
+
+Artifacts are project-authorized resources. The initial implementation stores bounded compilation logs in S3-compatible object storage and records immutable metadata in PostgreSQL.
+
+```http
+GET /v1/submissions/:submissionId/artifacts
+Authorization: Bearer <session-or-project-key>
+```
+
+The response contains metadata only: artifact ID, kind, filename, MIME type, byte size, SHA-256 and creation time. Object keys and storage credentials are never exposed.
+
+```http
+GET /v1/artifacts/:artifactId/download
+Authorization: Bearer <session-or-project-key>
+```
+
+Downloads are proxied through the API after project authorization and SHA-256/size verification. Responses use attachment disposition, `X-Content-Type-Options: nosniff`, and `Cache-Control: private, no-store`.
+
+Compilation cache objects are internal execution infrastructure and have no public download API. Cache keys include the source hash plus the immutable runtime image and trusted compile definition. Cached bytes are restored only into a fresh per-execution tmpfs workspace.

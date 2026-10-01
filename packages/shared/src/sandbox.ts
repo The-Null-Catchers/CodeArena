@@ -16,6 +16,7 @@ export interface SandboxResult {
   outputTruncated: boolean;
   verdict: Verdict;
   imageId: string;
+  compiledArtifact?: Buffer;
 }
 export interface ExecutionBackend {
   run(
@@ -27,6 +28,7 @@ export interface ExecutionBackend {
     onChunk: (kind: string, text: string) => void,
     onPhase: (phase: "compiling" | "running") => Promise<void>,
     labels: Record<string, string>,
+    compiledArtifact?: Buffer,
   ): Promise<SandboxResult>;
 }
 export function containerOptions(
@@ -125,6 +127,7 @@ export class DockerBackend implements ExecutionBackend {
     onChunk: (kind: string, text: string) => void,
     onPhase: (phase: "compiling" | "running") => Promise<void>,
     labels: Record<string, string>,
+    cachedCompiledArtifact?: Buffer,
   ): Promise<SandboxResult> {
     const started = Date.now();
     let container: Docker.Container | undefined;
@@ -140,6 +143,7 @@ export class DockerBackend implements ExecutionBackend {
       compileOutput = "";
     let exitCode: number | null = null;
     let imageId = "";
+    let compiledArtifact: Buffer | undefined;
     let phase = "image";
     const stop = (why: Verdict) => {
       if (reason) return;
@@ -200,6 +204,31 @@ export class DockerBackend implements ExecutionBackend {
       phase = "upload-inspect";
       if ((await upload.inspect()).ExitCode !== 0)
         throw new Error("SOURCE_UPLOAD_FAILED");
+      if (cachedCompiledArtifact) {
+        if (!r.compile || !r.cacheFiles?.length)
+          throw new Error("INVALID_COMPILE_CACHE_RUNTIME");
+        phase = "cache-restore-create";
+        const restore = await container.exec({
+          AttachStdin: true,
+          AttachStdout: true,
+          AttachStderr: true,
+          User: "65532:65532",
+          WorkingDir: "/workspace",
+          Cmd: ["tar", "--no-same-owner", "-xf", "-", "-C", "/workspace"],
+        });
+        const restoreStream = await restore.start({ hijack: true, stdin: true });
+        restoreStream.resume();
+        const restored = new Promise<void>((resolve, reject) => {
+          restoreStream.once("end", resolve);
+          restoreStream.once("close", resolve);
+          restoreStream.once("error", reject);
+        });
+        restoreStream.end(cachedCompiledArtifact);
+        phase = "cache-restore-stream";
+        await restored;
+        if ((await restore.inspect()).ExitCode !== 0)
+          throw new Error("COMPILE_CACHE_RESTORE_FAILED");
+      }
       sampler = setInterval(() => {
         if (sampling) return;
         sampling = true;
@@ -267,8 +296,64 @@ export class DockerBackend implements ExecutionBackend {
       };
       if (r.compile) {
         await onPhase("compiling");
-        exitCode = await stage(r.compile, true);
-        if (exitCode !== 0) reason ??= "compilation_error";
+        if (cachedCompiledArtifact) {
+          compileOutput = "[CodeArena] compilation cache hit\n";
+          exitCode = 0;
+        } else {
+          exitCode = await stage(r.compile, true);
+          if (exitCode !== 0) reason ??= "compilation_error";
+          if (!reason && r.cacheFiles?.length === 1) {
+            phase = "cache-export-create";
+            const exportExec = await container.exec({
+              AttachStdout: true,
+              AttachStderr: true,
+              User: "65532:65532",
+              WorkingDir: "/workspace",
+              Cmd: ["tar", "-cf", "-", r.cacheFiles[0]],
+            });
+            const exportStream = await exportExec.start({
+              hijack: true,
+              stdin: false,
+            });
+            const chunks: Buffer[] = [];
+            const stderrChunks: Buffer[] = [];
+            const stdoutSink = new Writable({
+              write: (buf: Buffer, _encoding, done) => {
+                chunks.push(Buffer.from(buf));
+                done();
+              },
+            });
+            const stderrSink = new Writable({
+              write: (buf: Buffer, _encoding, done) => {
+                stderrChunks.push(Buffer.from(buf));
+                done();
+              },
+            });
+            phase = "cache-export-stream";
+            this.docker.modem.demuxStream(
+              exportStream,
+              stdoutSink,
+              stderrSink,
+            );
+            await new Promise<void>((resolve, reject) => {
+              exportStream.on("end", resolve);
+              exportStream.on("close", resolve);
+              exportStream.on("error", reject);
+            });
+            if ((await exportExec.inspect()).ExitCode !== 0)
+              throw new Error(
+                `COMPILE_CACHE_EXPORT_FAILED:${Buffer.concat(
+                  stderrChunks,
+                ).toString("utf8")}`,
+              );
+            compiledArtifact = Buffer.concat(chunks);
+            if (
+              !compiledArtifact.byteLength ||
+              compiledArtifact.byteLength > 32 * 1024 * 1024
+            )
+              throw new Error("COMPILE_CACHE_ARTIFACT_INVALID_SIZE");
+          }
+        }
       }
       if (!reason && !signal.aborted) {
         await onPhase("running");
@@ -288,6 +373,7 @@ export class DockerBackend implements ExecutionBackend {
         outputTruncated: output.truncated,
         verdict: reason || "accepted",
         imageId,
+        compiledArtifact,
       };
     } catch (error) {
       console.error(
@@ -314,6 +400,7 @@ export class DockerBackend implements ExecutionBackend {
         outputTruncated: output.truncated,
         verdict: reason || "internal_error",
         imageId,
+        compiledArtifact,
       };
     } finally {
       clearTimeout(timer);
