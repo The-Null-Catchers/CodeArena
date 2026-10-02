@@ -1,4 +1,3 @@
-import { deliverMail } from "./mail.js";
 import Fastify from "fastify";
 import { Queue } from "bullmq";
 import { Registry, Gauge, collectDefaultMetrics } from "prom-client";
@@ -8,7 +7,6 @@ import {
   publish,
   transition,
 } from "../../../packages/shared/src/events.js";
-import { deliverWebhooks } from "./webhooks.js";
 import { tenantConcurrencyAvailable } from "../../../packages/shared/src/admission-budget.js";
 const queues = new Map<string, Queue>();
 function queue(id: string) {
@@ -134,8 +132,6 @@ async function tick() {
       ).rows[0].count,
     ),
   );
-  await deliverWebhooks();
-  await deliverMail();
 }
 const health = Fastify();
 health.get("/health/live", async () => ({ status: "ok" }));
