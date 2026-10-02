@@ -103,3 +103,10 @@ flowchart TD
 ```
 
 Secrets are AES-256-GCM encrypted at rest. Delivery attempts are bounded at eight. The recipient deduplicates event IDs; network delivery is at least once. Redirects are not followed, DNS is checked and pinned, and nonpublic destinations fail closed. Mail and webhook delivery run in the dedicated delivery-worker process, independently health-checked and scraped by Prometheus. The scheduler remains focused on worker recovery, capacity reservation, and dispatch, so slow SMTP/DNS/webhook I/O cannot stretch scheduling ticks.
+
+
+## Control-plane observability
+
+Submission admission persists the API request ID as a bounded `correlation_id`. Structured logs from the API, scheduler, and worker include that value when a submission is involved, allowing one request to be traced across admission, scheduling, recovery, and execution.
+
+Administrative queue/fleet updates use a bounded Redis Stream (`control:events`) for low-latency delivery. The owner/admin SSE endpoint begins with PostgreSQL queue and fleet snapshots, filters tenant queue events server-side, and supports `Last-Event-ID` replay. Redis remains a transport optimization rather than a source of truth; reconnects recover from PostgreSQL even after stream expiry.

@@ -281,6 +281,79 @@ describe("real PostgreSQL + Redis API boundaries", () => {
     }
   });
 
+  it("streams live tenant queue and fleet control events with correlation IDs", async () => {
+    const createdProject = await call("/v1/projects", {
+      organizationId: organization,
+      name: `Live control ${crypto.randomUUID()}`,
+    });
+    expect(createdProject.status).toBe(201);
+    const liveProject = createdProject.body.id;
+    const controller = new AbortController();
+    const response = await fetch(
+      `${base}/v1/control/events?projectId=${liveProject}`,
+      {
+        headers: { Authorization: `Bearer ${access}` },
+        signal: controller.signal,
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    const readUntil = async (predicate: (value: string) => boolean) => {
+      const deadline = Date.now() + 5000;
+      while (!predicate(buffer) && Date.now() < deadline) {
+        const remaining = Math.max(1, deadline - Date.now());
+        const next = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("CONTROL_STREAM_TIMEOUT")), remaining),
+          ),
+        ]);
+        if (next.done) break;
+        buffer += decoder.decode(next.value, { stream: true });
+      }
+      expect(predicate(buffer), buffer).toBe(true);
+    };
+
+    let submission: any;
+    const db = new pg.Pool({
+      connectionString:
+        process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    try {
+      await readUntil((value) => value.includes("event: snapshot"));
+      expect(buffer).toContain('"workers"');
+      expect(buffer).toContain('"queue"');
+      submission = await call("/v1/submissions", {
+        ...input,
+        projectId: liveProject,
+        source: "import time; time.sleep(1); print(1)",
+      });
+      expect(submission.status).toBe(202);
+      const correlationId = (
+        await db.query(
+          "SELECT correlation_id FROM submissions WHERE id=$1",
+          [submission.body.id],
+        )
+      ).rows[0].correlation_id;
+      await readUntil(
+        (value) =>
+          value.includes("event: queue.scheduled") &&
+          value.includes(submission.body.id),
+      );
+      expect(buffer).toContain(correlationId);
+    } finally {
+      controller.abort();
+      if (submission?.status === 202)
+        await call(`/v1/submissions/${submission.body.id}/cancel`, {});
+      await db.end();
+    }
+  });
+
   it("persists cancellation exactly once", async () => {
     const id = (await call("/v1/submissions", { ...input, projectId: project }))
       .body.id;

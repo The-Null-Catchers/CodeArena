@@ -17,6 +17,8 @@ import { pool, tx, audit } from "../../../packages/db/src/index.js";
 import {
   redis,
   publish,
+  publishControlEvent,
+  controlPlaneStream,
   transition,
 } from "../../../packages/shared/src/events.js";
 import {
@@ -35,6 +37,7 @@ import {
   objectStorageEnabled,
 } from "../../../packages/shared/src/object-storage.js";
 import { consumeAdmissionBudgets } from "../../../packages/shared/src/admission-budget.js";
+import { structuredLog } from "../../../packages/shared/src/observability.js";
 import { registerAuth, actor, authorize, hash } from "./auth.js";
 export const app = Fastify({
   bodyLimit: 160 * 1024,
@@ -439,7 +442,7 @@ const create = async (req: any, body: unknown) => {
     const definition = snapshotRuntime(r, image.image_id);
     const row = (
       await c.query(
-        "INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,priority,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'created') RETURNING id",
+        "INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,priority,state,correlation_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'created',$10) RETURNING id",
         [
           b.projectId,
           a.userId || null,
@@ -450,6 +453,7 @@ const create = async (req: any, body: unknown) => {
           b.mode,
           JSON.stringify(b.limits),
           b.priority,
+          req.id,
         ],
       )
     ).rows[0];
@@ -467,6 +471,21 @@ const create = async (req: any, body: unknown) => {
     return row.id;
   });
   await publish(id, "state", { state: "queued" }).catch(() => {});
+  await publishControlEvent(controlPlaneStream, "queue.admitted", {
+    submissionId: id,
+    projectId: b.projectId,
+    correlationId: req.id,
+    runtimeId: r.id,
+    priority: b.priority,
+  });
+  structuredLog("api", {
+    event: "submission.admitted",
+    correlationId: req.id,
+    submissionId: id,
+    projectId: b.projectId,
+    runtimeId: r.id,
+    mode: b.mode,
+  });
   return { id, status: "queued" };
 };
 app.post("/v1/submissions", async (req, reply) => {
@@ -600,6 +619,17 @@ app.post("/v1/submissions/:id/cancel", async (req) => {
   });
   await redis.set(`cancel:${s.id}`, "1", "EX", 60).catch(() => {});
   await publish(s.id, "state", { cancelRequested: true });
+  await publishControlEvent(controlPlaneStream, "queue.cancel_requested", {
+    submissionId: s.id,
+    projectId: s.project_id,
+    correlationId: s.correlation_id,
+  });
+  structuredLog("api", {
+    event: "queue.cancel_requested",
+    correlationId: s.correlation_id,
+    submissionId: s.id,
+    projectId: s.project_id,
+  });
   return { ok: true };
 });
 const realtimeSnapshot = async (id: string) => {
@@ -941,6 +971,121 @@ app.get("/v1/queue", async (req) => {
       )
     ).rows,
   };
+});
+
+app.get("/v1/control/events", async (req, reply) => {
+  const { projectId } = z
+    .object({ projectId: z.string().uuid() })
+    .parse(req.query);
+  await authorize(await actor(req), projectId, "workers:read", true);
+
+  const [queueSnapshot, workerSnapshot] = await Promise.all([
+    pool.query(
+      "SELECT state,count(*)::int AS count FROM submissions WHERE project_id=$1 GROUP BY state",
+      [projectId],
+    ),
+    pool.query(
+      "SELECT w.id,w.status,w.slots,w.memory_mb,w.hostname,w.last_heartbeat,count(DISTINCT s.id)::int AS active,array_agg(DISTINCT wr.runtime_id) FILTER (WHERE wr.runtime_id IS NOT NULL) AS runtimes FROM workers w LEFT JOIN submissions s ON s.worker_id=w.id AND s.state IN ('scheduled','preparing','compiling','running','judging') LEFT JOIN worker_runtimes wr ON wr.worker_id=w.id GROUP BY w.id ORDER BY w.id",
+    ),
+  ]);
+
+  const connectionKey = `control-sse:${projectId}`;
+  const admitted = await redis.eval(
+    "redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]); if redis.call('ZCARD',KEYS[1])>=5 then return 0 end; redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]); redis.call('EXPIRE',KEYS[1],60); return 1",
+    1,
+    connectionKey,
+    Date.now(),
+    Date.now() + 30000,
+    req.id,
+  );
+  if (!admitted)
+    throw Object.assign(new Error("Control stream connection limit exceeded"), {
+      statusCode: 429,
+    });
+
+  const reader = redis.duplicate({ commandTimeout: 15000, lazyConnect: true });
+  reader.on("error", () => {});
+  const requestedCursor = String(req.headers["last-event-id"] || "");
+  let cursor = /^\d+-\d+$/.test(requestedCursor)
+    ? requestedCursor
+    : "0-0";
+  if (cursor === "0-0") {
+    const tail = await redis
+      .xrevrange(controlPlaneStream, "+", "-", "COUNT", 1)
+      .catch(() => [] as string[][]);
+    cursor = tail[0]?.[0] || "0-0";
+  }
+  let closed = false;
+  const keepAlive = setInterval(() => {
+    void redis.zadd(connectionKey, Date.now() + 30000, req.id).catch(() => {});
+    if (!closed) reply.raw.write(": keepalive\n\n");
+  }, 10000);
+
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": config.WEB_ORIGIN,
+    "X-Accel-Buffering": "no",
+  });
+  reply.raw.write(
+    `event: snapshot\ndata: ${JSON.stringify({
+      queue: queueSnapshot.rows,
+      workers: workerSnapshot.rows,
+    })}\n\n`,
+  );
+  reply.raw.on("close", () => {
+    closed = true;
+    clearInterval(keepAlive);
+    void redis.zrem(connectionKey, req.id).catch(() => {});
+    reader.disconnect();
+  });
+
+  try {
+    await reader.connect();
+    while (!closed) {
+      const records = (await (reader as any).xread(
+        "BLOCK",
+        10000,
+        "COUNT",
+        50,
+        "STREAMS",
+        controlPlaneStream,
+        cursor,
+      )) as any;
+      if (!records?.length) continue;
+      for (const [, entries] of records) {
+        for (const [eventId, fields] of entries) {
+          cursor = eventId;
+          const mapped: Record<string, string> = {};
+          for (let i = 0; i < fields.length; i += 2)
+            mapped[fields[i]] = fields[i + 1];
+          let data: any = {};
+          try {
+            data = JSON.parse(mapped.data || "{}");
+          } catch {
+            continue;
+          }
+          const isFleet = String(mapped.type || "").startsWith("worker.");
+          if (!isFleet && data.projectId !== projectId) continue;
+          const chunk =
+            `id: ${eventId}\nevent: ${mapped.type || "control"}\ndata: ${JSON.stringify(data)}\n\n`;
+          if (!reply.raw.write(chunk))
+            await new Promise<void>((resolve) => {
+              reply.raw.once("drain", resolve);
+              reply.raw.once("close", resolve);
+            });
+        }
+      }
+    }
+  } catch {
+    if (!closed) reply.raw.end();
+  } finally {
+    clearInterval(keepAlive);
+    await redis.zrem(connectionKey, req.id).catch(() => {});
+    reader.disconnect();
+  }
 });
 
 app.post("/v1/webhooks", async (req, reply) => {
