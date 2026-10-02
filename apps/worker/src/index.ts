@@ -10,7 +10,7 @@ import {
   createWorkerConnection,
   publish,
   publishControlEvent,
-  fleetControlStream,
+  controlPlaneStream,
   transition,
 } from "../../../packages/shared/src/events.js";
 import { structuredLog } from "../../../packages/shared/src/observability.js";
@@ -86,7 +86,7 @@ await tx(async (c) => {
       [config.WORKER_ID, id, availableImages.get(id)],
     );
 });
-await publishControlEvent(fleetControlStream, "worker.online", {
+await publishControlEvent(controlPlaneStream, "worker.online", {
   workerId: config.WORKER_ID,
   slots: config.WORKER_SLOTS,
   memoryMb: config.WORKER_MEMORY_MB,
@@ -634,7 +634,7 @@ const shutdown = async () => {
   await pool.query("UPDATE workers SET status='draining' WHERE id=$1", [
     config.WORKER_ID,
   ]);
-  await publishControlEvent(fleetControlStream, "worker.draining", {
+  await publishControlEvent(controlPlaneStream, "worker.draining", {
     workerId: config.WORKER_ID,
     active: controllers.size,
   });
