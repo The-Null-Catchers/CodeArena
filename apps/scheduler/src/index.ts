@@ -88,6 +88,7 @@ async function tick() {
           projectId: s.project_id,
           previousWorkerId: s.worker_id,
           attempt: s.attempt,
+          correlationId: s.correlation_id,
         },
       });
     }
@@ -137,6 +138,7 @@ async function tick() {
           projectId: s.project_id,
           workerId: w.id,
           attempt: s.attempt + 1,
+          correlationId: s.correlation_id,
         },
       });
     }
@@ -146,7 +148,12 @@ async function tick() {
     structuredLog("scheduler", {
       event: event.type,
       correlationId:
-        String(event.data.submissionId || event.data.workerId || ""),
+        String(
+          event.data.correlationId ||
+            event.data.submissionId ||
+            event.data.workerId ||
+            "",
+        ),
       ...event.data,
     });
   }
