@@ -973,7 +973,7 @@ app.get("/v1/queue", async (req) => {
   };
 });
 
-app.get("/v1/control/events", async (req, reply) => {
+app.get("/v1/control/events", { config: { rateLimit: false } }, async (req, reply) => {
   const { projectId } = z
     .object({ projectId: z.string().uuid() })
     .parse(req.query);
