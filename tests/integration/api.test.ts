@@ -12,8 +12,20 @@ async function call(
   body?: unknown,
   token = access,
   method = body ? "POST" : "GET",
+  retry429 = true,
 ) {
-  const response = await limitedFetch(base + path, {
+  const request = {
+    method,
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  };
+  const response = retry429
+    ? await limitedFetch(base + path, request)
+    : await fetch(base + path, request);
+
     method,
     headers: {
       ...(body ? { "Content-Type": "application/json" } : {}),
@@ -129,9 +141,12 @@ describe("real PostgreSQL + Redis API boundaries", () => {
             "/v1/submissions",
             { ...input, projectId: budgetProject },
             token,
+            "POST",
+            false,
           ),
         );
       expect(admitted.map((r) => r.status)).toEqual([202, 202, 429]);
+      expect(Number(admitted[2].retryAfter)).toBeGreaterThan(0);
     } finally {
       for (const r of admitted.filter((item) => item.status === 202))
         await call(
@@ -163,9 +178,12 @@ describe("real PostgreSQL + Redis API boundaries", () => {
         "/v1/submissions",
         { ...input, projectId: project },
         key.secret,
+        "POST",
+        false,
       );
       expect(first.status).toBe(202);
       expect(second.status).toBe(429);
+      expect(Number(second.retryAfter)).toBeGreaterThan(0);
     } finally {
       if (first?.status === 202)
         await call(`/v1/submissions/${first.body.id}/cancel`, {});
