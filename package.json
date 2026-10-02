@@ -18,7 +18,8 @@
     "runtimes:build": "bash infrastructure/scripts/build-runtimes.sh",
     "format": "prettier --write .",
     "test:fleet": "vitest run --config vitest.fleet.config.ts",
-    "test:redis": "vitest run --config vitest.redis.config.ts"
+    "test:redis": "vitest run --config vitest.redis.config.ts",
+    "test:control": "vitest run --config vitest.control.config.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
