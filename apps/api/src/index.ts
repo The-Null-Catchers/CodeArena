@@ -1005,9 +1005,16 @@ app.get("/v1/control/events", async (req, reply) => {
 
   const reader = redis.duplicate({ commandTimeout: 15000, lazyConnect: true });
   reader.on("error", () => {});
-  let cursor = /^\d+-\d+$/.test(String(req.headers["last-event-id"]))
-    ? String(req.headers["last-event-id"])
-    : "$";
+  const requestedCursor = String(req.headers["last-event-id"] || "");
+  let cursor = /^\d+-\d+$/.test(requestedCursor)
+    ? requestedCursor
+    : "0-0";
+  if (cursor === "0-0") {
+    const tail = await redis
+      .xrevrange(controlPlaneStream, "+", "-", "COUNT", 1)
+      .catch(() => [] as string[][]);
+    cursor = tail[0]?.[0] || "0-0";
+  }
   let closed = false;
   const keepAlive = setInterval(() => {
     void redis.zadd(connectionKey, Date.now() + 30000, req.id).catch(() => {});
