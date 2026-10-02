@@ -6,8 +6,7 @@ import {
   redis,
   publish,
   publishControlEvent,
-  projectControlStream,
-  fleetControlStream,
+  controlPlaneStream,
   transition,
 } from "../../../packages/shared/src/events.js";
 import { structuredLog } from "../../../packages/shared/src/observability.js";
@@ -52,7 +51,7 @@ async function tick() {
     );
     for (const worker of offlineWorkers.rows)
       controlEvents.push({
-        stream: fleetControlStream,
+        stream: controlPlaneStream,
         type: "worker.offline",
         data: {
           workerId: worker.id,
@@ -82,7 +81,7 @@ async function tick() {
         s.id,
       ]);
       controlEvents.push({
-        stream: projectControlStream(s.project_id),
+        stream: controlPlaneStream,
         type: s.cancel_requested ? "queue.cancelled" : "queue.requeued",
         data: {
           submissionId: s.id,
@@ -131,7 +130,7 @@ async function tick() {
         [s.id, w.id, s.attempt + 1],
       );
       controlEvents.push({
-        stream: projectControlStream(s.project_id),
+        stream: controlPlaneStream,
         type: "queue.scheduled",
         data: {
           submissionId: s.id,
