@@ -15,7 +15,6 @@ export function structuredLog(
   const payload = JSON.stringify({
     timestamp: new Date().toISOString(),
     service,
-    event: fields.event,
     correlation_id:
       fields.correlationId ??
       fields.submissionId ??
@@ -23,6 +22,7 @@ export function structuredLog(
       fields.workerId ??
       null,
     ...fields,
+    event: fields.event,
   });
   if (level === "error") console.error(payload);
   else console.log(payload);
