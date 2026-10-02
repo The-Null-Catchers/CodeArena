@@ -3,6 +3,7 @@ import { beforeAll, describe, it, expect } from "vitest";
 import pg from "pg";
 const base = process.env.API_URL || "http://localhost:4000";
 let access = "",
+  primaryEmail = "",
   project = "",
   organization = "",
   otherAccess = "",
@@ -32,8 +33,9 @@ async function call(
   };
 }
 beforeAll(async () => {
+  primaryEmail = `api-${crypto.randomUUID()}@example.com`;
   const r = await call("/v1/auth/register", {
-    email: `api-${crypto.randomUUID()}@example.com`,
+    email: primaryEmail,
     password: "Real-transaction-test-123",
   });
   expect(r.status).toBe(201);
@@ -50,6 +52,31 @@ beforeAll(async () => {
 });
 const input = { language: "python", version: "3.13", source: "print(1)" };
 describe("real PostgreSQL + Redis API boundaries", () => {
+  it("delivers auth mail through the dedicated delivery worker", async () => {
+    const db = new pg.Pool({
+      connectionString:
+        process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    try {
+      let status = "";
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        status =
+          (
+            await db.query(
+              "SELECT m.status FROM mail_outbox m JOIN users u ON u.id=m.user_id WHERE u.email=$1 ORDER BY m.created_at DESC LIMIT 1",
+              [primaryEmail],
+            )
+          ).rows[0]?.status || "";
+        if (status === "delivered") break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(status).toBe("delivered");
+    } finally {
+      await db.end();
+    }
+  });
+
   it("rejects anonymous submission creation", async () =>
     expect(
       (await call("/v1/submissions", { ...input, projectId: project }, ""))
