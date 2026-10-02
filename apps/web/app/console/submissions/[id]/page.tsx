@@ -1,13 +1,25 @@
 "use client";
 import { use, useEffect, useState } from "react";
-import { api } from "../../../../lib/api";
+import { api, downloadArtifact } from "../../../../lib/api";
 export default function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params),
     [data, setData] = useState<any>(null),
+    [artifacts, setArtifacts] = useState<any[]>([]),
+    [artifactError, setArtifactError] = useState(""),
+    [downloading, setDownloading] = useState<string | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
-    api(`/v1/submissions/${id}`)
-      .then(setData)
+    Promise.all([
+      api(`/v1/submissions/${id}`),
+      api(`/v1/submissions/${id}/artifacts`).catch((e) => {
+        setArtifactError(e.message);
+        return { items: [] };
+      }),
+    ])
+      .then(([submission, artifactList]) => {
+        setData(submission);
+        setArtifacts(artifactList.items || []);
+      })
       .catch((e) => setError(e.message));
   }, [id]);
   if (error) return <p className="error">{error}</p>;
@@ -66,6 +78,65 @@ export default function Page({ params }: { params: Promise<{ id: string }> }) {
           </ul>
         </section>
       </div>
+      <section className="panel" style={{ marginTop: 20 }}>
+        <div className="panel-head">
+          <span>ARTIFACTS</span>
+          <span>{artifacts.length} file{artifacts.length === 1 ? "" : "s"}</span>
+        </div>
+        {artifactError ? (
+          <p className="error" style={{ margin: 16 }}>{artifactError}</p>
+        ) : artifacts.length === 0 ? (
+          <p className="muted" style={{ padding: "4px 20px 20px" }}>
+            No downloadable artifacts were captured for this submission.
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Kind</th>
+                  <th>Type</th>
+                  <th>Size</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {artifacts.map((artifact: any) => (
+                  <tr key={artifact.id}>
+                    <td className="mono">{artifact.filename}</td>
+                    <td>{artifact.kind}</td>
+                    <td>{artifact.mime_type}</td>
+                    <td>{(Number(artifact.size_bytes || 0) / 1024).toFixed(1)} KB</td>
+                    <td>
+                      <button
+                        className="button small"
+                        disabled={downloading === artifact.id}
+                        onClick={async () => {
+                          setArtifactError("");
+                          setDownloading(artifact.id);
+                          try {
+                            await downloadArtifact(artifact.id, artifact.filename);
+                          } catch (e) {
+                            setArtifactError(
+                              e instanceof Error ? e.message : "Artifact download failed",
+                            );
+                          } finally {
+                            setDownloading(null);
+                          }
+                        }}
+                      >
+                        {downloading === artifact.id ? "Downloading…" : "Download"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {data.tests.length > 0 && (
         <section className="panel" style={{ marginTop: 20 }}>
           <div className="panel-head">
