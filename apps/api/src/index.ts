@@ -659,7 +659,7 @@ const realtimeSnapshot = async (id: string) => {
   };
 };
 // Redis Streams provide low-latency output. PostgreSQL reconciles missed/expired terminal events.
-app.get("/v1/submissions/:id/events", async (req, reply) => {
+app.get("/v1/submissions/:id/events", { config: { rateLimit: false } }, async (req, reply) => {
   const s = await own(req);
   const streamKey = `sse:${s.project_id}`;
   const admitted = await redis.eval(
@@ -973,7 +973,7 @@ app.get("/v1/queue", async (req) => {
   };
 });
 
-app.get("/v1/control/events", async (req, reply) => {
+app.get("/v1/control/events", { config: { rateLimit: false } }, async (req, reply) => {
   const { projectId } = z
     .object({ projectId: z.string().uuid() })
     .parse(req.query);
