@@ -102,4 +102,4 @@ flowchart TD
   R --> B["Exponential retry / dead letter"]
 ```
 
-Secrets are AES-256-GCM encrypted at rest. Delivery attempts are bounded at eight. The recipient deduplicates event IDs; network delivery is at least once. Redirects are not followed, DNS is checked and pinned, and nonpublic destinations fail closed. The scheduler currently performs delivery after scheduling; splitting mail/webhooks into dedicated processes is a scale improvement.
+Secrets are AES-256-GCM encrypted at rest. Delivery attempts are bounded at eight. The recipient deduplicates event IDs; network delivery is at least once. Redirects are not followed, DNS is checked and pinned, and nonpublic destinations fail closed. Mail and webhook delivery run in the dedicated delivery-worker process, independently health-checked and scraped by Prometheus. The scheduler remains focused on worker recovery, capacity reservation, and dispatch, so slow SMTP/DNS/webhook I/O cannot stretch scheduling ticks.
