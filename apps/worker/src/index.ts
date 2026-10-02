@@ -590,6 +590,7 @@ const worker = new Worker(
         "worker",
         {
           event: "submission_execution_failed",
+          correlationId: s?.correlation_id || id,
           submissionId: id,
           workerId: config.WORKER_ID,
           attempt,
