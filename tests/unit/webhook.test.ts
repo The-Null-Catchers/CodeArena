@@ -4,7 +4,7 @@ import {
   signature,
   encryptSecret,
   decryptSecret,
-} from "../../apps/scheduler/src/webhooks.js";
+} from "../../apps/delivery-worker/src/webhooks.js";
 afterEach(() => {
   delete process.env.WEBHOOK_ALLOWED_HOSTS;
   delete process.env.WEBHOOK_ENCRYPTION_KEY;

@@ -33,7 +33,7 @@ jobs:
         with: { node-version: "22", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm runtimes:build
-      - run: cp .env.example .env && docker compose up -d --build --wait postgres redis minio mailpit api scheduler worker web
+      - run: cp .env.example .env && docker compose up -d --build --wait postgres redis minio mailpit api scheduler delivery-worker worker web
       - run: pnpm test:security
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:integration && pnpm test:e2e

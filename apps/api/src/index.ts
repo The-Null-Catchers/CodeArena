@@ -1,5 +1,5 @@
 import { registerEmail } from "./email.js";
-import { encryptSecret, allowedUrl } from "../../scheduler/src/webhooks.js";
+import { encryptSecret, allowedUrl } from "../../delivery-worker/src/webhooks.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
