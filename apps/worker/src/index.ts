@@ -9,8 +9,11 @@ import {
   redis,
   createWorkerConnection,
   publish,
+  publishControlEvent,
+  fleetControlStream,
   transition,
 } from "../../../packages/shared/src/events.js";
+import { structuredLog } from "../../../packages/shared/src/observability.js";
 import { DockerBackend } from "../../../packages/shared/src/sandbox.js";
 import {
   runtimes,
@@ -82,6 +85,19 @@ await tx(async (c) => {
       "INSERT INTO worker_runtimes(worker_id,runtime_id,image_id) VALUES($1,$2,$3)",
       [config.WORKER_ID, id, availableImages.get(id)],
     );
+});
+await publishControlEvent(fleetControlStream, "worker.online", {
+  workerId: config.WORKER_ID,
+  slots: config.WORKER_SLOTS,
+  memoryMb: config.WORKER_MEMORY_MB,
+  hostname: hostname(),
+  runtimes: available,
+});
+structuredLog("worker", {
+  event: "worker.online",
+  workerId: config.WORKER_ID,
+  slots: config.WORKER_SLOTS,
+  runtimes: available,
 });
 const registry = new Registry();
 collectDefaultMetrics({ register: registry });
@@ -570,12 +586,16 @@ const worker = new Worker(
         );
       });
       await publish(id, "state", { state: "failed" }).catch(() => {});
-      console.error(
-        JSON.stringify({
-          submission_id: id,
-          worker_id: config.WORKER_ID,
-          error: (e as Error).message,
-        }),
+      structuredLog(
+        "worker",
+        {
+          event: "submission_execution_failed",
+          submissionId: id,
+          workerId: config.WORKER_ID,
+          attempt,
+          error: e instanceof Error ? e.message : "UNKNOWN_ERROR",
+        },
+        "error",
       );
     } finally {
       clearInterval(ticker);
@@ -614,6 +634,15 @@ const shutdown = async () => {
   await pool.query("UPDATE workers SET status='draining' WHERE id=$1", [
     config.WORKER_ID,
   ]);
+  await publishControlEvent(fleetControlStream, "worker.draining", {
+    workerId: config.WORKER_ID,
+    active: controllers.size,
+  });
+  structuredLog("worker", {
+    event: "worker.draining",
+    workerId: config.WORKER_ID,
+    active: controllers.size,
+  });
   const deadline = setTimeout(() => {
     for (const c of controllers.values()) c.abort();
   }, 20000);
