@@ -9,6 +9,7 @@ import {
   transition,
 } from "../../../packages/shared/src/events.js";
 import { deliverWebhooks } from "./webhooks.js";
+import { tenantConcurrencyAvailable } from "../../../packages/shared/src/admission-budget.js";
 const queues = new Map<string, Queue>();
 function queue(id: string) {
   if (!queues.has(id))
@@ -69,6 +70,17 @@ async function tick() {
       "SELECT * FROM submissions WHERE state='queued' AND NOT cancel_requested ORDER BY created_at - CASE priority WHEN 'system' THEN interval '90 seconds' WHEN 'high' THEN interval '60 seconds' WHEN 'normal' THEN interval '30 seconds' ELSE interval '0 seconds' END, id LIMIT 100 FOR UPDATE SKIP LOCKED",
     );
     for (const s of pending.rows) {
+      const tenant = (
+        await c.query(
+          "SELECT p.max_concurrent,count(a.id)::int AS active FROM projects p LEFT JOIN submissions a ON a.project_id=p.id AND a.state IN ('scheduled','preparing','compiling','running','judging') WHERE p.id=$1 GROUP BY p.max_concurrent",
+          [s.project_id],
+        )
+      ).rows[0];
+      if (
+        !tenant ||
+        !tenantConcurrencyAvailable(tenant.active, tenant.max_concurrent)
+      )
+        continue;
       const w = (
         await c.query(
           "SELECT w.id,w.slots,count(s.id)::int AS active FROM workers w JOIN worker_runtimes wr ON wr.worker_id=w.id AND wr.runtime_id=$1 JOIN runtimes r ON r.id=wr.runtime_id AND r.enabled LEFT JOIN submissions s ON s.worker_id=w.id AND s.state IN ('scheduled','preparing','compiling','running','judging') WHERE ($2::text IS NULL OR wr.image_id=$2) AND wr.image_id IS NOT NULL AND w.status='online' AND w.last_heartbeat>now()-interval '15 seconds' GROUP BY w.id HAVING count(s.id)<w.slots ORDER BY count(s.id)::float/w.slots,w.id LIMIT 1",

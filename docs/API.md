@@ -171,3 +171,37 @@ Authorization: Bearer <session-or-project-key>
 Downloads are proxied through the API after project authorization and SHA-256/size verification. Responses use attachment disposition, `X-Content-Type-Options: nosniff`, and `Cache-Control: private, no-store`.
 
 Compilation cache objects are internal execution infrastructure and have no public download API. Cache keys include the source hash plus the immutable runtime image and trusted compile definition. Cached bytes are restored only into a fresh per-execution tmpfs workspace.
+
+
+## Tenant execution limits
+
+Project owners/admins can configure execution-plan limits server-side:
+
+```http
+PATCH /v1/projects/:projectId/limits
+Authorization: Bearer <session>
+Content-Type: application/json
+```
+
+Supported fields:
+
+- `maxConcurrent` — maximum scheduled/running executions for the project.
+- `maxOutstanding` — maximum non-terminal submissions.
+- `maxDaily` — daily submission admission limit.
+- `submissionsPerMinute` — Redis-backed project admission budget.
+- `maxPriority` — highest allowed priority class.
+
+The scheduler enforces `maxConcurrent` transactionally from PostgreSQL before reserving a worker, so queued work cannot bypass the tenant cap.
+
+API keys can set a narrower admission budget at creation:
+
+```json
+{
+  "projectId": "<uuid>",
+  "name": "CI runner",
+  "scopes": ["submissions:create", "submissions:read"],
+  "submissionsPerMinute": 20
+}
+```
+
+Submission admission consumes two atomic Redis dimensions: project + authenticated identity (user or API key). If either limit is exhausted the API returns HTTP 429 with `Retry-After`. Rejected multidimensional checks do not partially charge the other budget.

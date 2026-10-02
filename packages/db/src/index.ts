@@ -22,9 +22,10 @@ export async function audit(
   action: string,
   userId: string | null,
   target: string,
+  metadata: Record<string, unknown> = {},
 ) {
   await c.query(
-    "INSERT INTO audit_logs(action,user_id,target) VALUES($1,$2,$3)",
-    [action, userId, target],
+    "INSERT INTO audit_logs(action,user_id,target,metadata) VALUES($1,$2,$3,$4)",
+    [action, userId, target, JSON.stringify(metadata)],
   );
 }
