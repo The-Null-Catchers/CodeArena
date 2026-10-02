@@ -14,7 +14,7 @@ async function call(
   method = body ? "POST" : "GET",
   retry429 = true,
 ) {
-  const request = {
+  const request: RequestInit = {
     method,
     headers: {
       ...(body ? { "Content-Type": "application/json" } : {}),
@@ -25,15 +25,11 @@ async function call(
   const response = retry429
     ? await limitedFetch(base + path, request)
     : await fetch(base + path, request);
-
-    method,
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  return { status: response.status, body: await response.json() };
+  return {
+    status: response.status,
+    body: await response.json(),
+    retryAfter: response.headers.get("retry-after"),
+  };
 }
 beforeAll(async () => {
   const r = await call("/v1/auth/register", {
