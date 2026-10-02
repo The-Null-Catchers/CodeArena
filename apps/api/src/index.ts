@@ -36,6 +36,7 @@ import {
   objectStorageEnabled,
 } from "../../../packages/shared/src/object-storage.js";
 import { consumeAdmissionBudgets } from "../../../packages/shared/src/admission-budget.js";
+import { structuredLog } from "../../../packages/shared/src/observability.js";
 import { registerAuth, actor, authorize, hash } from "./auth.js";
 export const app = Fastify({
   bodyLimit: 160 * 1024,
@@ -440,7 +441,7 @@ const create = async (req: any, body: unknown) => {
     const definition = snapshotRuntime(r, image.image_id);
     const row = (
       await c.query(
-        "INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,priority,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'created') RETURNING id",
+        "INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,priority,state,correlation_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'created',$10) RETURNING id",
         [
           b.projectId,
           a.userId || null,
@@ -451,6 +452,7 @@ const create = async (req: any, body: unknown) => {
           b.mode,
           JSON.stringify(b.limits),
           b.priority,
+          req.id,
         ],
       )
     ).rows[0];
@@ -468,6 +470,14 @@ const create = async (req: any, body: unknown) => {
     return row.id;
   });
   await publish(id, "state", { state: "queued" }).catch(() => {});
+  structuredLog("api", {
+    event: "submission.admitted",
+    correlationId: req.id,
+    submissionId: id,
+    projectId: b.projectId,
+    runtimeId: r.id,
+    mode: b.mode,
+  });
   return { id, status: "queued" };
 };
 app.post("/v1/submissions", async (req, reply) => {
