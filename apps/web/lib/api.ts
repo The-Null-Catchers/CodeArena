@@ -64,7 +64,9 @@ export async function downloadArtifact(id: string, filename: string) {
     try {
       const data = await response.json();
       message = data.error?.message || message;
-    } catch {}
+    } catch {
+      // Non-JSON error responses fall back to the generic download message.
+    }
     throw new Error(message);
   }
   const blob = await response.blob();
