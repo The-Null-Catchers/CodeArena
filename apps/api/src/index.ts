@@ -17,6 +17,7 @@ import { pool, tx, audit } from "../../../packages/db/src/index.js";
 import {
   redis,
   publish,
+  publishControlEvent,
   controlPlaneStream,
   transition,
 } from "../../../packages/shared/src/events.js";
@@ -470,6 +471,13 @@ const create = async (req: any, body: unknown) => {
     return row.id;
   });
   await publish(id, "state", { state: "queued" }).catch(() => {});
+  await publishControlEvent(controlPlaneStream, "queue.admitted", {
+    submissionId: id,
+    projectId: b.projectId,
+    correlationId: req.id,
+    runtimeId: r.id,
+    priority: b.priority,
+  });
   structuredLog("api", {
     event: "submission.admitted",
     correlationId: req.id,
@@ -611,6 +619,17 @@ app.post("/v1/submissions/:id/cancel", async (req) => {
   });
   await redis.set(`cancel:${s.id}`, "1", "EX", 60).catch(() => {});
   await publish(s.id, "state", { cancelRequested: true });
+  await publishControlEvent(controlPlaneStream, "queue.cancel_requested", {
+    submissionId: s.id,
+    projectId: s.project_id,
+    correlationId: s.correlation_id,
+  });
+  structuredLog("api", {
+    event: "queue.cancel_requested",
+    correlationId: s.correlation_id,
+    submissionId: s.id,
+    projectId: s.project_id,
+  });
   return { ok: true };
 });
 const realtimeSnapshot = async (id: string) => {
