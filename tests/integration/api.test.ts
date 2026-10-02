@@ -64,7 +64,7 @@ describe("real PostgreSQL + Redis API boundaries", () => {
         status =
           (
             await db.query(
-              "SELECT m.status FROM mail_outbox m JOIN users u ON u.id=m.user_id WHERE u.email=$1 ORDER BY m.created_at DESC LIMIT 1",
+              "SELECT status FROM mail_outbox WHERE recipient=$1 ORDER BY next_attempt_at DESC LIMIT 1",
               [primaryEmail],
             )
           ).rows[0]?.status || "";
