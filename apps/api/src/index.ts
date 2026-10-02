@@ -17,6 +17,7 @@ import { pool, tx, audit } from "../../../packages/db/src/index.js";
 import {
   redis,
   publish,
+  controlPlaneStream,
   transition,
 } from "../../../packages/shared/src/events.js";
 import {
@@ -941,6 +942,113 @@ app.get("/v1/queue", async (req) => {
       )
     ).rows,
   };
+});
+
+app.get("/v1/control/events", async (req, reply) => {
+  const { projectId } = z
+    .object({ projectId: z.string().uuid() })
+    .parse(req.query);
+  await authorize(await actor(req), projectId, "workers:read", true);
+
+  const [queueSnapshot, workerSnapshot] = await Promise.all([
+    pool.query(
+      "SELECT state,count(*)::int AS count FROM submissions WHERE project_id=$1 GROUP BY state",
+      [projectId],
+    ),
+    pool.query(
+      "SELECT w.id,w.status,w.slots,w.memory_mb,w.hostname,w.last_heartbeat,count(DISTINCT s.id)::int AS active,array_agg(DISTINCT wr.runtime_id) FILTER (WHERE wr.runtime_id IS NOT NULL) AS runtimes FROM workers w LEFT JOIN submissions s ON s.worker_id=w.id AND s.state IN ('scheduled','preparing','compiling','running','judging') LEFT JOIN worker_runtimes wr ON wr.worker_id=w.id GROUP BY w.id ORDER BY w.id",
+    ),
+  ]);
+
+  const connectionKey = `control-sse:${projectId}`;
+  const admitted = await redis.eval(
+    "redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]); if redis.call('ZCARD',KEYS[1])>=5 then return 0 end; redis.call('ZADD',KEYS[1],ARGV[2],ARGV[3]); redis.call('EXPIRE',KEYS[1],60); return 1",
+    1,
+    connectionKey,
+    Date.now(),
+    Date.now() + 30000,
+    req.id,
+  );
+  if (!admitted)
+    throw Object.assign(new Error("Control stream connection limit exceeded"), {
+      statusCode: 429,
+    });
+
+  const reader = redis.duplicate({ commandTimeout: 15000, lazyConnect: true });
+  reader.on("error", () => {});
+  let cursor = /^\d+-\d+$/.test(String(req.headers["last-event-id"]))
+    ? String(req.headers["last-event-id"])
+    : "$";
+  let closed = false;
+  const keepAlive = setInterval(() => {
+    void redis.zadd(connectionKey, Date.now() + 30000, req.id).catch(() => {});
+    if (!closed) reply.raw.write(": keepalive\n\n");
+  }, 10000);
+
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": config.WEB_ORIGIN,
+    "X-Accel-Buffering": "no",
+  });
+  reply.raw.write(
+    `event: snapshot\ndata: ${JSON.stringify({
+      queue: queueSnapshot.rows,
+      workers: workerSnapshot.rows,
+    })}\n\n`,
+  );
+  reply.raw.on("close", () => {
+    closed = true;
+    clearInterval(keepAlive);
+    void redis.zrem(connectionKey, req.id).catch(() => {});
+    reader.disconnect();
+  });
+
+  try {
+    while (!closed) {
+      const records = (await reader.xread(
+        "BLOCK",
+        10000,
+        "COUNT",
+        50,
+        "STREAMS",
+        controlPlaneStream,
+        cursor,
+      )) as any;
+      if (!records?.length) continue;
+      for (const [, entries] of records) {
+        for (const [eventId, fields] of entries) {
+          cursor = eventId;
+          const mapped: Record<string, string> = {};
+          for (let i = 0; i < fields.length; i += 2)
+            mapped[fields[i]] = fields[i + 1];
+          let data: any = {};
+          try {
+            data = JSON.parse(mapped.data || "{}");
+          } catch {
+            continue;
+          }
+          const isFleet = String(mapped.type || "").startsWith("worker.");
+          if (!isFleet && data.projectId !== projectId) continue;
+          const chunk =
+            `id: ${eventId}\nevent: ${mapped.type || "control"}\ndata: ${JSON.stringify(data)}\n\n`;
+          if (!reply.raw.write(chunk))
+            await new Promise<void>((resolve) => {
+              reply.raw.once("drain", resolve);
+              reply.raw.once("close", resolve);
+            });
+        }
+      }
+    }
+  } catch {
+    if (!closed) reply.raw.end();
+  } finally {
+    clearInterval(keepAlive);
+    await redis.zrem(connectionKey, req.id).catch(() => {});
+    reader.disconnect();
+  }
 });
 
 app.post("/v1/webhooks", async (req, reply) => {
