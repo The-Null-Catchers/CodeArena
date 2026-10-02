@@ -132,10 +132,11 @@ describe("control-plane load qualification", () => {
     );
     expect(frames).toHaveLength(5);
 
-    for (const { reader, controller } of streams.slice(1)) {
-      await reader!.cancel().catch(() => undefined);
+    for (const { reader, controller } of streams) {
       controller.abort();
+      void reader!.cancel().catch(() => undefined);
     }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
   it("filters another project while continuing delivery for the selected tenant project", async () => {
@@ -173,12 +174,12 @@ describe("control-plane load qualification", () => {
     const buffer = await readUntil(
       selected.reader!,
       (value) =>
-        value.includes("event: queue.scheduled") &&
+        value.includes("event: queue.admitted") &&
         value.includes(own.body.id),
     );
     expect(buffer).not.toContain(other.body.id);
 
-    await selected.reader!.cancel().catch(() => undefined);
     selected.controller.abort();
+    void selected.reader!.cancel().catch(() => undefined);
   });
 });
