@@ -58,9 +58,7 @@ export async function publishControlEvent(
   }
 }
 
-export const projectControlStream = (projectId: string) =>
-  `control:project:${projectId}`;
-export const fleetControlStream = "control:fleet";
+export const controlPlaneStream = "control:events";
 
 export async function transition(
   c: pg.PoolClient,
