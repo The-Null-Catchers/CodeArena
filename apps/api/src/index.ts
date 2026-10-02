@@ -1043,6 +1043,7 @@ app.get("/v1/control/events", async (req, reply) => {
   });
 
   try {
+    await reader.connect();
     while (!closed) {
       const records = (await (reader as any).xread(
         "BLOCK",
