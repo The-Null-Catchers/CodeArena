@@ -49,3 +49,35 @@ export async function stream(
     }
   }
 }
+
+
+export async function downloadArtifact(id: string, filename: string) {
+  const token =
+    typeof window !== "undefined" ? sessionStorage.getItem("ca_access") : null;
+  const response = await fetch(`${API}/v1/artifacts/${id}/download`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    let message = "Artifact download failed";
+    try {
+      const data = await response.json();
+      message = data.error?.message || message;
+    } catch {}
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename || "artifact";
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
