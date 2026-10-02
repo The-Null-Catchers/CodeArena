@@ -140,7 +140,13 @@ describe("control-plane load qualification", () => {
   });
 
   it("filters another project while continuing delivery for the selected tenant project", async () => {
-    const selected = await openControl(project);
+    const selectedProject = await call("/v1/projects", {
+      organizationId: organization,
+      name: `Control selected ${crypto.randomUUID()}`,
+    });
+    expect(selectedProject.status).toBe(201);
+
+    const selected = await openControl(selectedProject.body.id);
     expect(selected.response.status).toBe(200);
     await readUntil(
       selected.reader!,
@@ -163,7 +169,7 @@ describe("control-plane load qualification", () => {
     submissions.push(other.body.id);
 
     const own = await call("/v1/submissions", {
-      projectId: project,
+      projectId: selectedProject.body.id,
       language: "python",
       version: "3.13",
       source: "import time; time.sleep(2); print('selected')",
