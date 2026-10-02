@@ -205,3 +205,21 @@ API keys can set a narrower admission budget at creation:
 ```
 
 Submission admission consumes two atomic Redis dimensions: project + authenticated identity (user or API key). If either limit is exhausted the API returns HTTP 429 with `Retry-After`. Rejected multidimensional checks do not partially charge the other budget.
+
+
+## Live control-plane events
+
+Project owners/admins can open a replayable SSE stream for queue and worker-fleet changes:
+
+```http
+GET /v1/control/events?projectId=<uuid>
+Authorization: Bearer <session>
+Accept: text/event-stream
+Last-Event-ID: <optional redis stream id>
+```
+
+The stream always begins with an authoritative PostgreSQL snapshot containing the selected project's queue counts plus the current worker fleet. Live Redis Stream events then include `queue.admitted`, `queue.scheduled`, `queue.requeued`, `queue.cancel_requested`, `queue.cancelled`, `worker.online`, `worker.draining`, and `worker.offline`.
+
+Queue events are filtered server-side to the authorized project. Fleet events are available only through the existing owner/admin worker-read authorization boundary. Redis is best-effort transport: reconnecting clients rebuild current state from PostgreSQL before replaying retained events.
+
+Each submission persists the original API request ID as `correlation_id`. API, scheduler, and worker structured logs carry that correlation value so an admission request can be traced across dispatch and execution.
