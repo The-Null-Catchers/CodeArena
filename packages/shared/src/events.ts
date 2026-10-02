@@ -38,6 +38,30 @@ export async function publish(id: string, type: string, data: unknown) {
     return false;
   }
 }
+export async function publishControlEvent(
+  stream: string,
+  type: string,
+  data: unknown,
+) {
+  if (redis.status !== "ready") return false;
+  try {
+    await redis.eval(
+      "local id=redis.call('XADD',KEYS[1],'MAXLEN','~',512,'*','type',ARGV[1],'data',ARGV[2]); redis.call('EXPIRE',KEYS[1],3600); return id",
+      1,
+      stream,
+      type,
+      JSON.stringify(data),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const projectControlStream = (projectId: string) =>
+  `control:project:${projectId}`;
+export const fleetControlStream = "control:fleet";
+
 export async function transition(
   c: pg.PoolClient,
   id: string,
