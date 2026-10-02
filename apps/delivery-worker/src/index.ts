@@ -3,6 +3,7 @@ import { Counter, Gauge, Registry, collectDefaultMetrics } from "prom-client";
 import { pool } from "../../../packages/db/src/index.js";
 import { deliverMail } from "./mail.js";
 import { deliverWebhooks } from "./webhooks.js";
+import { structuredLog } from "../../../packages/shared/src/observability.js";
 
 let stopping = false;
 let healthy = true;
@@ -58,12 +59,13 @@ const timer = setInterval(() => {
     .catch((error) => {
       healthy = false;
       deliveries.inc({ outcome: "failure" });
-      console.error(
-        JSON.stringify({
-          service: "delivery-worker",
+      structuredLog(
+        "delivery-worker",
+        {
           event: "delivery_tick_failed",
           error: error instanceof Error ? error.message : "UNKNOWN_ERROR",
-        }),
+        },
+        "error",
       );
     })
     .finally(() => {
