@@ -1037,7 +1037,7 @@ app.get("/v1/control/events", async (req, reply) => {
 
   try {
     while (!closed) {
-      const records = (await reader.xread(
+      const records = (await (reader as any).xread(
         "BLOCK",
         10000,
         "COUNT",
