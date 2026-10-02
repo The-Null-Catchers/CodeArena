@@ -84,8 +84,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const id of submissions)
-    await call(`/v1/submissions/${id}/cancel`, {}).catch(() => undefined);
   await Promise.all(
     openReaders.map((reader) => reader.cancel().catch(() => undefined)),
   );
