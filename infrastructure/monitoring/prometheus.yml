@@ -9,3 +9,5 @@ scrape_configs:
     static_configs: [{ targets: ["scheduler:4200"] }]
   - job_name: delivery-worker
     static_configs: [{ targets: ["delivery-worker:4300"] }]
+  - job_name: maintenance-worker
+    static_configs: [{ targets: ["maintenance-worker:4400"] }]
