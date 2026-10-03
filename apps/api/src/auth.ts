@@ -1,5 +1,6 @@
 import { roleCan } from "../../../packages/shared/src/domain.js";
 import { enqueueAuthMail } from "./email.js";
+import { registerChallengeAuthoring } from "./challenge-authoring.js";
 import { createHash, randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -182,4 +183,5 @@ export async function registerAuth(app: FastifyInstance) {
     ]);
     return { ok: true };
   });
+  registerChallengeAuthoring(app, { actor, authorize });
 }
