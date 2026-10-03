@@ -63,7 +63,7 @@ const editable = z
 async function fullChallenge(client: any, id: string) {
   const row = (
     await client.query(
-      "SELECT id,project_id,slug,title,description,difficulty,visibility,judge,status,current_revision,created_at,updated_at,published_at FROM challenges WHERE id=$1",
+      "SELECT id,project_id,slug,title,description,difficulty,visibility,draft_visibility,judge,status,current_revision,created_at,updated_at,published_at FROM challenges WHERE id=$1",
       [id],
     )
   ).rows[0];
@@ -82,6 +82,8 @@ async function fullChallenge(client: any, id: string) {
   ]);
   return {
     ...row,
+    visibility: row.draft_visibility ?? row.visibility,
+    publishedVisibility: row.visibility,
     languages: languageRows.rows.map((item: any) => item.language),
     tags: tagRows.rows.map((item: any) => item.tag),
     tests: testRows.rows.map((item: any) => ({
@@ -153,8 +155,8 @@ export function registerChallengeAuthoring(
       await client.query(
         `UPDATE challenges SET
           title=COALESCE($2,title),description=COALESCE($3,description),difficulty=COALESCE($4,difficulty),
-          visibility=COALESCE($5,visibility),judge=COALESCE($6,judge),status='draft',
-          current_revision=$7,updated_at=now()
+          draft_visibility=COALESCE($5,draft_visibility,visibility),visibility='private',
+          judge=COALESCE($6,judge),status='draft',current_revision=$7,updated_at=now()
         WHERE id=$1`,
         [
           id,
@@ -231,7 +233,7 @@ export function registerChallengeAuthoring(
       if (!testCount)
         throw Object.assign(new Error("Challenge has no tests"), { statusCode: 400 });
       await client.query(
-        "UPDATE challenges SET status='published',published_at=now(),updated_at=now() WHERE id=$1",
+        "UPDATE challenges SET status='published',visibility=COALESCE(draft_visibility,visibility),draft_visibility=NULL,published_at=now(),updated_at=now() WHERE id=$1",
         [id],
       );
       const published = await fullChallenge(client, id);
@@ -254,7 +256,7 @@ export function registerChallengeAuthoring(
     await authorize(a, challenge.project_id, "challenges:write");
     await tx(async (client) => {
       await client.query(
-        "UPDATE challenges SET status='archived',updated_at=now() WHERE id=$1",
+        "UPDATE challenges SET status='archived',visibility='private',draft_visibility=NULL,updated_at=now() WHERE id=$1",
         [id],
       );
       await audit(client, "challenge.archive", a.userId ?? null, id, {
