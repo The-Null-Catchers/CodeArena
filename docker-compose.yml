@@ -12,6 +12,10 @@ x-service: &service
     OBJECT_STORAGE_REGION: us-east-1
     OBJECT_STORAGE_ACCESS_KEY: "${MINIO_ROOT_USER}"
     OBJECT_STORAGE_SECRET_KEY: "${MINIO_ROOT_PASSWORD}"
+    ARTIFACT_RETENTION_DAYS: "${ARTIFACT_RETENTION_DAYS:-30}"
+    COMPILE_CACHE_RETENTION_DAYS: "${COMPILE_CACHE_RETENTION_DAYS:-14}"
+    STORAGE_GC_BATCH_SIZE: "${STORAGE_GC_BATCH_SIZE:-100}"
+    STORAGE_GC_INTERVAL_MS: "${STORAGE_GC_INTERVAL_MS:-60000}"
   restart: unless-stopped
   networks: [control]
   depends_on:
@@ -117,6 +121,22 @@ services:
             "node",
             "-e",
             "fetch('http://localhost:4300/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          ],
+        interval: 10s,
+        timeout: 3s,
+        retries: 10,
+      }
+  maintenance-worker:
+    <<: *service
+    command: ["node", "dist/apps/maintenance-worker/src/index.js"]
+    healthcheck:
+      {
+        test:
+          [
+            "CMD",
+            "node",
+            "-e",
+            "fetch('http://localhost:4400/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
           ],
         interval: 10s,
         timeout: 3s,
