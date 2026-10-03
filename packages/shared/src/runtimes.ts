@@ -109,9 +109,12 @@ export const runtimes = [
       "-XX:ActiveProcessorCount=1",
       "-Xmx64m",
       "-XX:MaxMetaspaceSize=64m",
+      "-cp",
+      "classes",
       "Main",
     ],
-    ["javac", "Main.java"],
+    ["javac", "-d", "classes", "Main.java"],
+    ["classes"],
   ),
   runtime(
     "go",
