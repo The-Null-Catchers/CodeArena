@@ -15,6 +15,7 @@
     "apps/worker/**/*.ts",
     "apps/scheduler/**/*.ts",
     "apps/delivery-worker/**/*.ts",
+    "apps/maintenance-worker/**/*.ts",
     "packages/**/*.ts"
   ],
   "exclude": ["packages/execution-sdk", "node_modules", "dist"]
