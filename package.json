@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "dev": "concurrently \"tsx watch apps/api/src/index.ts\" \"tsx watch apps/scheduler/src/index.ts\" \"tsx watch apps/delivery-worker/src/index.ts\" \"tsx watch apps/worker/src/index.ts\" \"pnpm --dir apps/web dev\"",
+    "dev": "concurrently \"tsx watch apps/api/src/index.ts\" \"tsx watch apps/scheduler/src/index.ts\" \"tsx watch apps/delivery-worker/src/index.ts\" \"tsx watch apps/maintenance-worker/src/index.ts\" \"tsx watch apps/worker/src/index.ts\" \"pnpm --dir apps/web dev\"",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:security": "vitest run --config vitest.security.config.ts",
