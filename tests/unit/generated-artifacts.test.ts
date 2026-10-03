@@ -10,7 +10,7 @@ async function makeArchive(
   entries: Array<{
     name: string;
     body?: Buffer | string;
-    type?: "file" | "symlink";
+    type?: "file" | "symlink" | "directory";
     linkname?: string;
   }>,
 ) {
@@ -58,7 +58,7 @@ describe("generated artifact policy", () => {
   it("captures only direct regular files under artifacts and rejects symlinks", async () => {
     const capture = await extractGeneratedArtifacts(
       await makeArchive([
-        { name: "artifacts/", body: "" },
+        { name: "artifacts/", type: "directory" },
         { name: "artifacts/report.json", body: '{"score":7}' },
         { name: "artifacts/nested/secret.txt", body: "no" },
         {
