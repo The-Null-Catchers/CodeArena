@@ -50,6 +50,14 @@ export function inspectGeneratedArtifactMime(filename: string, body: Buffer) {
   }
 }
 
+function containsControlCharacter(value: string) {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 function safeGeneratedFilename(name: string) {
   if (!name.startsWith("artifacts/")) return undefined;
   const filename = name.slice("artifacts/".length);
@@ -59,7 +67,7 @@ function safeGeneratedFilename(name: string) {
     filename.includes("/") ||
     filename === "." ||
     filename === ".." ||
-    /[\u0000-\u001f\u007f]/.test(filename)
+    containsControlCharacter(filename)
   )
     return undefined;
   return filename;
@@ -105,8 +113,9 @@ export async function extractGeneratedArtifacts(
       const chunks: Buffer[] = [];
       let seen = 0;
       let overflow = false;
-      stream.on("data", (chunk: Buffer) => {
-        seen += chunk.length;
+      stream.on("data", (chunk: unknown) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+        seen += buffer.length;
         if (
           seen > GENERATED_ARTIFACT_MAX_FILE_BYTES ||
           acceptedBytes + seen > GENERATED_ARTIFACT_MAX_TOTAL_BYTES
@@ -115,7 +124,7 @@ export async function extractGeneratedArtifacts(
           limited = true;
           return;
         }
-        chunks.push(Buffer.from(chunk));
+        chunks.push(Buffer.from(buffer));
       });
       stream.once("error", reject);
       stream.once("end", () => {
