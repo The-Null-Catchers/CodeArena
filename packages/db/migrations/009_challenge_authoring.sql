@@ -53,17 +53,3 @@ CREATE TABLE challenge_templates (
 CREATE INDEX challenges_project_status_updated ON challenges(project_id,status,updated_at DESC,id);
 CREATE INDEX challenge_revisions_history ON challenge_revisions(challenge_id,revision DESC);
 CREATE INDEX challenge_templates_project ON challenge_templates(project_id,updated_at DESC,id);
-
-CREATE FUNCTION enforce_published_challenge_submission() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF NEW.challenge_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM challenges WHERE id=NEW.challenge_id AND status='published'
-  ) THEN
-    RAISE EXCEPTION 'Challenge is not published' USING ERRCODE='23514';
-  END IF;
-  RETURN NEW;
-END;
-$$;
-CREATE TRIGGER published_challenge_submissions
-BEFORE INSERT OR UPDATE OF challenge_id ON submissions
-FOR EACH ROW EXECUTE FUNCTION enforce_published_challenge_submission();
