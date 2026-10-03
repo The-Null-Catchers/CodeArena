@@ -1,7 +1,22 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { pool, tx, audit } from "../../../packages/db/src/index.js";
-import { actor, authorize } from "./auth.js";
+
+export type ChallengeAuthoringActor = {
+  userId?: string;
+  projectId?: string;
+  apiKeyId?: string;
+  scopes?: string[];
+};
+export type ChallengeAuthoringDependencies = {
+  actor: (req: FastifyRequest) => Promise<ChallengeAuthoringActor>;
+  authorize: (
+    actor: ChallengeAuthoringActor,
+    projectId: string,
+    scope: string,
+    admin?: boolean,
+  ) => Promise<void>;
+};
 
 const languages = z.enum([
   "python",
@@ -110,7 +125,10 @@ async function saveRevision(client: any, challenge: any, userId?: string) {
   );
 }
 
-export function registerChallengeAuthoring(app: FastifyInstance) {
+export function registerChallengeAuthoring(
+  app: FastifyInstance,
+  { actor, authorize }: ChallengeAuthoringDependencies,
+) {
   app.get("/v1/challenge-authoring/:id", async (req) => {
     const id = z.string().uuid().parse((req.params as { id: string }).id);
     const a = await actor(req);
@@ -125,7 +143,6 @@ export function registerChallengeAuthoring(app: FastifyInstance) {
     const a = await actor(req);
     const initial = await fullChallenge(pool, id);
     await authorize(a, initial.project_id, "challenges:write");
-
     return tx(async (client) => {
       const locked = (
         await client.query("SELECT * FROM challenges WHERE id=$1 FOR UPDATE", [id])
@@ -199,7 +216,7 @@ export function registerChallengeAuthoring(app: FastifyInstance) {
     await authorize(a, initial.project_id, "challenges:write");
     return tx(async (client) => {
       const locked = (
-        await client.query("SELECT * FROM challenges WHERE id=$1 FOR UPDATE", [id])
+        await client.query("SELECT id FROM challenges WHERE id=$1 FOR UPDATE", [id])
       ).rows[0];
       if (!locked)
         throw Object.assign(new Error("Challenge not found"), { statusCode: 404 });
@@ -278,25 +295,26 @@ export function registerChallengeAuthoring(app: FastifyInstance) {
       throw Object.assign(new Error("Challenge unavailable"), { statusCode: 404 });
     if (challenge.visibility !== "public")
       await authorize(a, challenge.project_id, "submissions:create");
-    const rows = (
-      await pool.query(
-        `WITH best AS (
-          SELECT DISTINCT ON (COALESCE(s.user_id::text,s.id::text),s.runtime_id)
-            s.id,s.runtime_id,r.language,r.version,
-            'user-' || substr(encode(digest(COALESCE(s.user_id::text,s.id::text),'sha256'),'hex'),1,12) AS participant,
-            sr.score,sr.wall_ms,sr.cpu_ms,sr.peak_memory_bytes,s.created_at
-          FROM submissions s
-          JOIN submission_results sr ON sr.submission_id=s.id
-          JOIN runtimes r ON r.id=s.runtime_id
-          WHERE s.challenge_id=$1 AND s.state='completed' AND ($2::text IS NULL OR s.runtime_id=$2)
-          ORDER BY COALESCE(s.user_id::text,s.id::text),s.runtime_id,sr.score DESC,sr.wall_ms ASC,sr.cpu_ms ASC,s.created_at ASC
+    return {
+      items: (
+        await pool.query(
+          `WITH best AS (
+            SELECT DISTINCT ON (COALESCE(s.user_id::text,s.id::text),s.runtime_id)
+              s.id,s.runtime_id,r.language,r.version,
+              'user-' || substr(encode(digest(COALESCE(s.user_id::text,s.id::text),'sha256'),'hex'),1,12) AS participant,
+              sr.score,sr.wall_ms,sr.cpu_ms,sr.peak_memory_bytes,s.created_at
+            FROM submissions s
+            JOIN submission_results sr ON sr.submission_id=s.id
+            JOIN runtimes r ON r.id=s.runtime_id
+            WHERE s.challenge_id=$1 AND s.state='completed' AND ($2::text IS NULL OR s.runtime_id=$2)
+            ORDER BY COALESCE(s.user_id::text,s.id::text),s.runtime_id,sr.score DESC,sr.wall_ms ASC,sr.cpu_ms ASC,s.created_at ASC
+          )
+          SELECT *,dense_rank() OVER(ORDER BY score DESC,wall_ms ASC,cpu_ms ASC) AS rank
+          FROM best ORDER BY rank,created_at LIMIT 100`,
+          [id, query.runtimeId ?? null],
         )
-        SELECT *,dense_rank() OVER(ORDER BY score DESC,wall_ms ASC,cpu_ms ASC) AS rank
-        FROM best ORDER BY rank,created_at LIMIT 100`,
-        [id, query.runtimeId ?? null],
-      )
-    ).rows;
-    return { items: rows };
+      ).rows,
+    };
   });
 
   app.get("/v1/challenge-templates", async (req) => {
