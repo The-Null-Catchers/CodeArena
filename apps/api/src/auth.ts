@@ -102,9 +102,10 @@ export async function registerAuth(app: FastifyInstance) {
 
   // Keep unknown-account password verification on the same expensive path as
   // known accounts so login timing does not become a useful enumeration signal.
-  const dummyPasswordHash = await argon2.hash(randomBytes(32), {
-    type: argon2.argon2id,
-  });
+  const dummyPasswordHash = await argon2.hash(
+    randomBytes(32).toString("base64url"),
+    { type: argon2.argon2id },
+  );
 
   const issue = async (req: FastifyRequest, userId: string) => {
     const refresh = randomBytes(32).toString("base64url");
