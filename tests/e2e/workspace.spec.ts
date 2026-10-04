@@ -1,7 +1,9 @@
 import { test, expect } from "@playwright/test";
+
 test("register → challenge → run → submit → inspect verdict", async ({
   page,
 }) => {
+  test.setTimeout(120000);
   await page.goto("/login");
   await page
     .getByRole("button", { name: "New here? Create an account" })
@@ -12,10 +14,25 @@ test("register → challenge → run → submit → inspect verdict", async ({
   await page
     .getByLabel("Password", { exact: true })
     .fill("End-to-end-password-123");
-  await page
-    .getByRole("button", { name: "Create account", exact: true })
-    .click();
-  await expect(page).toHaveURL(/console\/playground/);
+
+  const createAccount = page.getByRole("button", {
+    name: "Create account",
+    exact: true,
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await createAccount.click();
+    try {
+      await expect(page).toHaveURL(/console\/playground/, { timeout: 5000 });
+      break;
+    } catch (error) {
+      const alert = page.getByRole("alert");
+      const text = (await alert.textContent()) || "";
+      const retry = text.match(/Rate limit exceeded, retry in (\d+) seconds/i);
+      if (!retry || attempt === 1) throw error;
+      await page.waitForTimeout((Number(retry[1]) + 1) * 1000);
+    }
+  }
+
   await page.goto("/console/challenges/reverse-string");
   await expect(
     page.getByRole("heading", { name: "Reverse String" }),
