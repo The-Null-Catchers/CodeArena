@@ -16,7 +16,16 @@ jobs:
         with: { node-version: "22", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      - run: pnpm typecheck
+      - name: Typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm typecheck 2>&1 | tee typecheck.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-typecheck
+          path: typecheck.log
       - run: pnpm test
       - run: pnpm build
       - run: pnpm --dir packages/execution-sdk build
