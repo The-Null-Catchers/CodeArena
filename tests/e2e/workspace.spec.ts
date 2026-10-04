@@ -25,7 +25,7 @@ test("register → challenge → run → submit → inspect verdict", async ({
       await expect(page).toHaveURL(/console\/playground/, { timeout: 5000 });
       break;
     } catch (error) {
-      const alert = page.getByRole("alert");
+      const alert = page.getByText(/Rate limit exceeded, retry in \d+ seconds/i);
       const text = (await alert.textContent()) || "";
       const retry = text.match(/Rate limit exceeded, retry in (\d+) seconds/i);
       if (!retry || attempt === 1) throw error;
