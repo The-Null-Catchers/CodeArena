@@ -19,7 +19,7 @@ const emails = {
   candidate: `membership-candidate-${suffix}@example.com`,
 };
 let organizationId = "";
-let ids: Record<string, string> = {};
+const ids: Record<string, string> = {};
 let ownerToken = "";
 let adminToken = "";
 
