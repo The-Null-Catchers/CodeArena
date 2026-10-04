@@ -30,6 +30,7 @@ const nav = [
   ["team", "Team", Users],
   ["webhooks", "Webhooks", Webhook],
   ["usage", "Usage", BarChart3],
+  ["platform-analytics", "Platform analytics", BarChart3],
   ["workers", "Workers", Server],
   ["queue", "Queue", ListOrdered],
   ["runtimes", "Runtimes", Box],
