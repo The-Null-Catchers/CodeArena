@@ -1,6 +1,7 @@
 import { roleCan } from "../../../packages/shared/src/domain.js";
 import { enqueueAuthMail } from "./email.js";
 import { registerChallengeAuthoring } from "./challenge-authoring.js";
+import { registerAdminMemberships } from "./admin-memberships.js";
 import { createHash, randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -100,8 +101,6 @@ export async function registerAuth(app: FastifyInstance) {
     })
     .strict();
 
-  // Keep unknown-account password verification on the same expensive path as
-  // known accounts so login timing does not become a useful enumeration signal.
   const dummyPasswordHash = await argon2.hash(
     randomBytes(32).toString("base64url"),
     { type: argon2.argon2id },
@@ -351,4 +350,5 @@ export async function registerAuth(app: FastifyInstance) {
   });
 
   registerChallengeAuthoring(app, { actor, authorize });
+  registerAdminMemberships(app, { actor });
 }
