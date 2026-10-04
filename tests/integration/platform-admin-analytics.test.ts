@@ -112,6 +112,9 @@ afterAll(async () => {
       submissionIds,
     ]);
   }
+  await db.query("DELETE FROM audit_logs WHERE user_id=ANY($1::uuid[])", [
+    [adminId, userId],
+  ]);
   await db.query("DELETE FROM sessions WHERE user_id=ANY($1::uuid[])", [
     [adminId, userId],
   ]);
