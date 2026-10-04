@@ -52,6 +52,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.query(
+    "DELETE FROM audit_logs WHERE user_id IN (SELECT id FROM users WHERE email=ANY($1::text[]))",
+    [[email, lockedEmail]],
+  );
+  await db.query(
     "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email=ANY($1::text[]))",
     [[email, lockedEmail]],
   );
