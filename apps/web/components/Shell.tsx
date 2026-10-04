@@ -25,6 +25,7 @@ const nav = [
   ["submissions", "Submissions", History],
   ["projects", "Projects", Folder],
   ["api-keys", "API keys", Key],
+  ["sessions", "Sessions", Key],
   ["webhooks", "Webhooks", Webhook],
   ["usage", "Usage", BarChart3],
   ["workers", "Workers", Server],
