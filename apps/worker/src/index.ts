@@ -358,6 +358,7 @@ const worker = new Worker(
             "codearena.attempt": String(attempt),
           },
           compiledArtifact,
+          s.mode !== "challenge",
         );
         if (!compiledArtifact && result.compiledArtifact) {
           compiledArtifact = result.compiledArtifact;
@@ -497,6 +498,58 @@ const worker = new Worker(
           );
         }
       }
+      const generatedArtifacts: Array<{
+        key: string;
+        filename: string;
+        mimeType: string;
+        size: number;
+        sha256: string;
+      }> = [];
+      if (storage && s.mode !== "challenge" && final?.generatedArtifacts?.length) {
+        for (const artifact of final.generatedArtifacts) {
+          try {
+            const objectKey = `submissions/${id}/generated/${artifact.sha256}-${digest(
+              artifact.filename,
+            ).slice(0, 16)}`;
+            const stored = await storage.put(
+              objectKey,
+              artifact.body,
+              artifact.mimeType,
+            );
+            generatedArtifacts.push({
+              key: stored.key,
+              filename: artifact.filename,
+              mimeType: stored.contentType,
+              size: stored.size,
+              sha256: stored.sha256,
+            });
+          } catch (error) {
+            console.error(
+              JSON.stringify({
+                service: "worker",
+                event: "artifact_store_failed",
+                submission_id: id,
+                worker_id: config.WORKER_ID,
+                kind: "generated",
+                filename: artifact.filename,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "UNKNOWN_ARTIFACT_ERROR",
+              }),
+            );
+          }
+        }
+      }
+      if (final?.artifactCapture?.rejected || final?.artifactCapture?.limited)
+        structuredLog("worker", {
+          event: "generated_artifact_policy_applied",
+          correlationId: s?.correlation_id || id,
+          submissionId: id,
+          captured: generatedArtifacts.length,
+          rejected: final.artifactCapture.rejected,
+          limited: final.artifactCapture.limited,
+        });
       await tx(async (c) => {
         const row = (
           await c.query("SELECT * FROM submissions WHERE id=$1 FOR UPDATE", [
@@ -552,6 +605,23 @@ const worker = new Worker(
               compileLogArtifact.sha256,
             ],
           );
+        for (const artifact of generatedArtifacts)
+          await c.query(
+            "INSERT INTO artifacts(submission_id,project_id,kind,object_key,filename,mime_type,size_bytes,sha256) VALUES($1,$2,'generated',$3,$4,$5,$6,$7) ON CONFLICT(object_key) DO NOTHING",
+            [
+              id,
+              s.project_id,
+              artifact.key,
+              artifact.filename,
+              artifact.mimeType,
+              artifact.size,
+              artifact.sha256,
+            ],
+          );
+        const generatedBytes = generatedArtifacts.reduce(
+          (sum, artifact) => sum + artifact.size,
+          0,
+        );
         await c.query(
           "INSERT INTO usage_records(submission_id,project_id,wall_ms,cpu_ms,artifact_bytes) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
           [
@@ -559,7 +629,7 @@ const worker = new Worker(
             s.project_id,
             totalWall,
             totalCpu,
-            compileLogArtifact?.size || 0,
+            (compileLogArtifact?.size || 0) + generatedBytes,
           ],
         );
         await transition(

@@ -5,6 +5,11 @@ import tar from "tar-stream";
 import type { Limits, Verdict } from "./domain.js";
 import type { RuntimeDefinition } from "./runtimes.js";
 import { runtimeImage } from "./runtimes.js";
+import {
+  extractGeneratedArtifacts,
+  type GeneratedArtifact,
+  type GeneratedArtifactCapture,
+} from "./generated-artifacts.js";
 export interface SandboxResult {
   stdout: string;
   stderr: string;
@@ -17,6 +22,8 @@ export interface SandboxResult {
   verdict: Verdict;
   imageId: string;
   compiledArtifact?: Buffer;
+  generatedArtifacts?: GeneratedArtifact[];
+  artifactCapture?: Pick<GeneratedArtifactCapture, "rejected" | "limited">;
 }
 export interface ExecutionBackend {
   run(
@@ -29,6 +36,7 @@ export interface ExecutionBackend {
     onPhase: (phase: "compiling" | "running") => Promise<void>,
     labels: Record<string, string>,
     compiledArtifact?: Buffer,
+    captureGeneratedArtifacts?: boolean,
   ): Promise<SandboxResult>;
 }
 export function containerOptions(
@@ -128,6 +136,7 @@ export class DockerBackend implements ExecutionBackend {
     onPhase: (phase: "compiling" | "running") => Promise<void>,
     labels: Record<string, string>,
     cachedCompiledArtifact?: Buffer,
+    captureGenerated = false,
   ): Promise<SandboxResult> {
     const started = Date.now();
     let container: Docker.Container | undefined;
@@ -144,6 +153,11 @@ export class DockerBackend implements ExecutionBackend {
     let exitCode: number | null = null;
     let imageId = "";
     let compiledArtifact: Buffer | undefined;
+    let generatedArtifacts: GeneratedArtifact[] = [];
+    let artifactCapture: Pick<GeneratedArtifactCapture, "rejected" | "limited"> = {
+      rejected: 0,
+      limited: false,
+    };
     let phase = "image";
     const stop = (why: Verdict) => {
       if (reason) return;
@@ -294,6 +308,63 @@ export class DockerBackend implements ExecutionBackend {
           collect(kind, output.finish(prefix + kind));
         return (await exec.inspect()).ExitCode;
       };
+      const captureArtifacts = async () => {
+        phase = "artifact-export-create";
+        const exportExec = await container!.exec({
+          AttachStdout: true,
+          AttachStderr: true,
+          User: "65532:65532",
+          WorkingDir: "/workspace",
+          Cmd: ["tar", "-cf", "-", "artifacts"],
+        });
+        const exportStream = await exportExec.start({
+          hijack: true,
+          stdin: false,
+        });
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        let overflow = false;
+        const stdoutSink = new Writable({
+          write: (buf: Buffer, _encoding, done) => {
+            bytes += buf.length;
+            if (bytes <= 12 * 1024 * 1024) chunks.push(Buffer.from(buf));
+            else overflow = true;
+            done();
+          },
+        });
+        const stderrSink = new Writable({ write: (_buf, _encoding, done) => done() });
+        phase = "artifact-export-stream";
+        this.docker.modem.demuxStream(exportStream, stdoutSink, stderrSink);
+        await new Promise<void>((resolve, reject) => {
+          exportStream.on("end", resolve);
+          exportStream.on("close", resolve);
+          exportStream.on("error", reject);
+        });
+        const exit = (await exportExec.inspect()).ExitCode;
+        if (exit !== 0) return;
+        if (overflow) {
+          artifactCapture = { rejected: 1, limited: true };
+          return;
+        }
+        const captured = await extractGeneratedArtifacts(Buffer.concat(chunks));
+        generatedArtifacts = captured.items;
+        artifactCapture = {
+          rejected: captured.rejected,
+          limited: captured.limited,
+        };
+        if (captured.rejected || captured.limited)
+          console.error(
+            JSON.stringify({
+              service: "sandbox",
+              event: "artifact_capture_limited",
+              submission_id: labels["codearena.submission"],
+              worker_id: labels["codearena.worker"],
+              captured: captured.items.length,
+              rejected: captured.rejected,
+              limited: captured.limited,
+            }),
+          );
+      };
       if (r.compile) {
         await onPhase("compiling");
         if (cachedCompiledArtifact) {
@@ -355,11 +426,17 @@ export class DockerBackend implements ExecutionBackend {
           }
         }
       }
+      let ranProgram = false;
       if (!reason && !signal.aborted) {
         await onPhase("running");
         exitCode = await stage(r.execute, false);
+        ranProgram = true;
         if (exitCode !== 0) reason ??= "runtime_error";
       }
+      clearTimeout(timer);
+      timer = undefined;
+      if (captureGenerated && ranProgram && !signal.aborted)
+        await captureArtifacts();
       const inspect = await container.inspect();
       if (inspect.State.OOMKilled) reason = "memory_limit_exceeded";
       return {
@@ -374,6 +451,8 @@ export class DockerBackend implements ExecutionBackend {
         verdict: reason || "accepted",
         imageId,
         compiledArtifact,
+        generatedArtifacts,
+        artifactCapture,
       };
     } catch (error) {
       console.error(
@@ -401,6 +480,8 @@ export class DockerBackend implements ExecutionBackend {
         verdict: reason || "internal_error",
         imageId,
         compiledArtifact,
+        generatedArtifacts,
+        artifactCapture,
       };
     } finally {
       clearTimeout(timer);
