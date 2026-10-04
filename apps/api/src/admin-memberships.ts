@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { pool, tx, audit } from "../../../packages/db/src/index.js";
 import type { Actor } from "./auth.js";
+import { registerPlatformAdmin } from "./platform-admin.js";
 
 const organizationIdSchema = z.object({ id: z.string().uuid() });
 const memberParamsSchema = z.object({
@@ -205,4 +206,6 @@ export function registerAdminMemberships(
       return { ok: true };
     });
   });
+
+  registerPlatformAdmin(app, deps);
 }
