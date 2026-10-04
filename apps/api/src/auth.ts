@@ -329,7 +329,7 @@ export async function registerAuth(app: FastifyInstance) {
     );
     if (!row.rowCount)
       throw Object.assign(new Error("Session not found"), { statusCode: 404 });
-    await tx((c) => audit(c, "auth.session_revoke", a.userId, id));
+    await tx((c) => audit(c, "auth.session_revoke", a.userId ?? null, id));
     return { ok: true, current: id === a.sessionId };
   });
 
