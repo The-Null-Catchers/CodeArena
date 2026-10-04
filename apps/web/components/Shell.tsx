@@ -21,6 +21,7 @@ const nav = [
   ["dashboard", "Overview", LayoutDashboard],
   ["playground", "Playground", Terminal],
   ["challenges", "Challenges", Code2],
+  ["authoring", "Authoring", Code2],
   ["submissions", "Submissions", History],
   ["projects", "Projects", Folder],
   ["api-keys", "API keys", Key],
