@@ -58,6 +58,34 @@ async function request(
   return { status: response.status, body: await response.json() };
 }
 
+async function waitForSseEvent(
+  response: Response,
+  eventName: string,
+  controller: AbortController,
+) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("SSE response body unavailable");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error(`SSE ended before ${eventName}`);
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+      for (const block of blocks) {
+        if (block.includes(`event: ${eventName}`)) return block;
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+    await reader.cancel().catch(() => {});
+    controller.abort();
+  }
+}
+
 beforeAll(async () => {
   for (const [name, email] of Object.entries(emails)) {
     ids[name] = (
@@ -100,7 +128,7 @@ afterAll(async () => {
 });
 
 describe("interview rooms", () => {
-  it("enforces participation, revision conflicts, and private-note isolation", async () => {
+  it("enforces participation, revision conflicts, live replay, and private-note isolation", async () => {
     const created = await request("/v1/interview-rooms", ownerToken, "POST", {
       projectId,
       title: "Backend interview",
@@ -132,6 +160,13 @@ describe("interview rooms", () => {
     );
     expect(outsiderRoom.status).toBe(404);
 
+    const outsiderStream = await fetch(
+      `${base}/v1/interview-rooms/${roomId}/stream`,
+      { headers: { Authorization: `Bearer ${outsiderToken}` } },
+    );
+    expect(outsiderStream.status).toBe(404);
+    await outsiderStream.body?.cancel();
+
     const noteBody = `private-${suffix}`;
     const note = await request(
       `/v1/interview-rooms/${roomId}/private-notes`,
@@ -148,6 +183,30 @@ describe("interview rooms", () => {
     );
     expect(candidateNotes.status).toBe(403);
 
+    const beforeLive = await request(
+      `/v1/interview-rooms/${roomId}/events?after=0`,
+      candidateToken,
+    );
+    const cursor = Math.max(
+      0,
+      ...beforeLive.body.items.map((event: any) => Number(event.id)),
+    );
+    const controller = new AbortController();
+    const liveResponse = await fetch(
+      `${base}/v1/interview-rooms/${roomId}/stream?after=${cursor}`,
+      {
+        headers: { Authorization: `Bearer ${candidateToken}` },
+        signal: controller.signal,
+      },
+    );
+    expect(liveResponse.status).toBe(200);
+    expect(liveResponse.headers.get("content-type")).toContain("text/event-stream");
+    const liveEventPromise = waitForSseEvent(
+      liveResponse,
+      "document.updated",
+      controller,
+    );
+
     const firstEdit = await request(
       `/v1/interview-rooms/${roomId}/document`,
       ownerToken,
@@ -156,6 +215,10 @@ describe("interview rooms", () => {
     );
     expect(firstEdit.status).toBe(200);
     expect(Number(firstEdit.body.document_revision)).toBe(1);
+
+    const liveEvent = await liveEventPromise;
+    expect(liveEvent).toContain('"revision":1');
+    expect(liveEvent).not.toContain(noteBody);
 
     const staleEdit = await request(
       `/v1/interview-rooms/${roomId}/document`,
@@ -179,7 +242,9 @@ describe("interview rooms", () => {
       candidateToken,
     );
     expect(events.status).toBe(200);
-    expect(events.body.items.some((event: any) => event.kind === "document.updated")).toBe(true);
+    expect(
+      events.body.items.some((event: any) => event.kind === "document.updated"),
+    ).toBe(true);
     expect(JSON.stringify(events.body)).not.toContain(noteBody);
 
     const ended = await request(
