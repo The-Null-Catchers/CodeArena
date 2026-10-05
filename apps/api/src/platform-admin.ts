@@ -169,4 +169,94 @@ export function registerPlatformAdmin(
       projects: projects.rows,
     };
   });
+
+  app.get("/v1/admin/users", async (req) => {
+    const a = await deps.actor(req);
+    await requirePlatformAdmin(a);
+    const query = z
+      .object({
+        q: z.string().trim().max(120).default(""),
+        status: z.enum(["all", "active", "disabled"]).default("all"),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+        offset: z.coerce.number().int().min(0).max(10000).default(0),
+      })
+      .parse(req.query);
+    const filters: string[] = ["u.email ILIKE $1"];
+    const values: unknown[] = [`%${query.q}%`];
+    if (query.status !== "all") {
+      values.push(query.status === "disabled");
+      filters.push(`u.disabled=$${values.length}`);
+    }
+    values.push(query.limit, query.offset);
+    const rows = await pool.query(
+      `SELECT u.id,u.email,u.disabled,u.platform_admin,u.created_at,
+              (SELECT count(*)::int FROM memberships m WHERE m.user_id=u.id) AS memberships,
+              (SELECT count(*)::int FROM sessions s WHERE s.user_id=u.id AND s.revoked_at IS NULL AND s.expires_at>now()) AS active_sessions,
+              (SELECT count(*)::int FROM submissions s WHERE s.user_id=u.id) AS submissions
+         FROM users u
+        WHERE ${filters.join(" AND ")}
+        ORDER BY u.created_at DESC,u.id
+        LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    const total = await pool.query(
+      `SELECT count(*)::int AS count FROM users u WHERE ${filters.join(" AND ")}`,
+      values.slice(0, values.length - 2),
+    );
+    return { items: rows.rows, total: total.rows[0].count };
+  });
+
+  app.patch("/v1/admin/users/:id", async (req) => {
+    const a = await deps.actor(req);
+    await requirePlatformAdmin(a);
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { disabled } = z.object({ disabled: z.boolean() }).strict().parse(req.body);
+    if (id === a.userId && disabled)
+      throw Object.assign(new Error("Cannot disable current administrator"), {
+        statusCode: 409,
+      });
+
+    return tx(async (client) => {
+      const target = (
+        await client.query(
+          "SELECT id,email,disabled,platform_admin FROM users WHERE id=$1 FOR UPDATE",
+          [id],
+        )
+      ).rows[0];
+      if (!target)
+        throw Object.assign(new Error("User not found"), { statusCode: 404 });
+
+      if (disabled && target.platform_admin && !target.disabled) {
+        const activeAdmins = await client.query(
+          "SELECT count(*)::int AS count FROM users WHERE platform_admin AND NOT disabled",
+        );
+        if (activeAdmins.rows[0].count <= 1)
+          throw Object.assign(new Error("Cannot disable last platform administrator"), {
+            statusCode: 409,
+          });
+      }
+
+      const updated = (
+        await client.query(
+          "UPDATE users SET disabled=$2 WHERE id=$1 RETURNING id,email,disabled,platform_admin,created_at",
+          [id, disabled],
+        )
+      ).rows[0];
+      let revokedSessions = 0;
+      if (disabled) {
+        const revoked = await client.query(
+          "UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL RETURNING id",
+          [id],
+        );
+        revokedSessions = revoked.rowCount || 0;
+      }
+      await audit(client, "platform.user.status_update", a.userId ?? null, id, {
+        email: target.email,
+        previousDisabled: target.disabled,
+        disabled,
+        revokedSessions,
+      });
+      return { ...updated, revokedSessions };
+    });
+  });
 }
