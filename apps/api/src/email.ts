@@ -6,6 +6,7 @@ import argon2 from "argon2";
 import { tx } from "../../../packages/db/src/index.js";
 import { encryptSecret } from "../../delivery-worker/src/webhooks.js";
 import { hash } from "./auth.js";
+import { registerInterviewRooms } from "./interview-rooms.js";
 export async function enqueueAuthMail(
   c: pg.PoolClient,
   userId: string,
@@ -108,4 +109,6 @@ export function registerEmail(app: FastifyInstance) {
     });
     return { ok: true };
   });
+
+  registerInterviewRooms(app);
 }
