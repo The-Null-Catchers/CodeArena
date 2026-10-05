@@ -10,6 +10,14 @@ export const redis = new Redis(process.env.REDIS_URL!, {
 redis.on("error", () => {
   // Callers handle bounded command failures; reconnect attempts are expected during outages.
 });
+
+// The shared command client is intentionally fail-fast, but duplicated clients are
+// long-lived streaming/subscription connections. Let their initial command wait for
+// the socket to become ready so startup cannot race Redis connection establishment.
+const duplicateRedis = redis.duplicate.bind(redis);
+redis.duplicate = ((override = {}) =>
+  duplicateRedis({ enableOfflineQueue: true, ...override })) as typeof redis.duplicate;
+
 // BullMQ's blocking worker connection must keep retrying. Never use it for HTTP,
 // event publication or cancellation: those operations must finish during an outage.
 export function createWorkerConnection() {
