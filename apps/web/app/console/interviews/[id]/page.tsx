@@ -27,7 +27,9 @@ export default function InterviewRoomPage(){
         else if(m.type==="presence.changed"){ const p=m.presence as Presence; setPresence(x=>[...x.filter(i=>i.userId!==p.userId),p]); }
         else if(m.type==="presence.left") setPresence(x=>x.filter(i=>i.userId!==m.userId));
         else if(m.type==="event"&&m.event){ const e=m.event; cursor.current=Math.max(cursor.current,Number(e.id||0)); setEvents(x=>[...x.filter(i=>i.id!==Number(e.id)),{...e,id:Number(e.id)}].slice(-100)); if(e.kind==="document.updated"&&!pending.current) void refreshRoom(); if(e.kind==="room.ended") setRoom(r=>r?{...r,status:"ended"}:r); }
-      }catch{} };
+      }catch{
+        // Ignore malformed realtime frames; server protocol validation is authoritative.
+      } };
       ws.onclose=()=>{ if(closed)return; setSaving(false); pending.current=false; setStatus("reconnecting"); reconnect.current=setTimeout(connect,1200); }; ws.onerror=()=>setStatus("reconnecting");
     }; connect(); return()=>{closed=true;if(reconnect.current)clearTimeout(reconnect.current);socket.current?.close();};
   },[id]);
