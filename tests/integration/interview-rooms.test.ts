@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import argon2 from "argon2";
+import { createHash, randomBytes } from "node:crypto";
 import pg from "pg";
 import { limitedFetch } from "./http.js";
 
@@ -9,7 +9,6 @@ const db = new pg.Pool({
     process.env.DATABASE_URL ||
     "postgresql://codearena:development-db-password@localhost:5432/codearena",
 });
-const password = "Interview-room-test-123";
 const suffix = crypto.randomUUID();
 const emails = {
   owner: `interview-owner-${suffix}@example.com`,
@@ -24,11 +23,19 @@ let candidateToken = "";
 let outsiderToken = "";
 let roomId = "";
 
-async function login(email: string) {
-  const response = await limitedFetch(base + "/v1/auth/login", {
+const sha256 = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+
+async function issueAccessToken(userId: string) {
+  const refreshToken = randomBytes(32).toString("base64url");
+  await db.query(
+    "INSERT INTO sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 days')",
+    [userId, sha256(refreshToken)],
+  );
+  const response = await limitedFetch(base + "/v1/auth/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ refreshToken }),
   });
   expect(response.status).toBe(200);
   return (await response.json()).accessToken as string;
@@ -52,12 +59,11 @@ async function request(
 }
 
 beforeAll(async () => {
-  const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
   for (const [name, email] of Object.entries(emails)) {
     ids[name] = (
       await db.query(
         "INSERT INTO users(email,password_hash) VALUES($1,$2) RETURNING id",
-        [email, passwordHash],
+        [email, "unused-by-interview-test"],
       )
     ).rows[0].id;
   }
@@ -77,9 +83,9 @@ beforeAll(async () => {
       [organizationId, `Interview project ${suffix}`],
     )
   ).rows[0].id;
-  ownerToken = await login(emails.owner);
-  candidateToken = await login(emails.candidate);
-  outsiderToken = await login(emails.outsider);
+  ownerToken = await issueAccessToken(ids.owner);
+  candidateToken = await issueAccessToken(ids.candidate);
+  outsiderToken = await issueAccessToken(ids.outsider);
 });
 
 afterAll(async () => {
@@ -101,7 +107,7 @@ describe("interview rooms", () => {
     });
     expect(created.status).toBe(201);
     expect(created.body.role).toBe("interviewer");
-    expect(created.body.document_revision).toBe(0);
+    expect(Number(created.body.document_revision)).toBe(0);
     roomId = created.body.id;
 
     const added = await request(
@@ -149,7 +155,7 @@ describe("interview rooms", () => {
       { document: "const answer = 41;", expectedRevision: 0 },
     );
     expect(firstEdit.status).toBe(200);
-    expect(firstEdit.body.document_revision).toBe(1);
+    expect(Number(firstEdit.body.document_revision)).toBe(1);
 
     const staleEdit = await request(
       `/v1/interview-rooms/${roomId}/document`,
@@ -166,7 +172,7 @@ describe("interview rooms", () => {
       { document: "const answer = 42;", expectedRevision: 1 },
     );
     expect(candidateEdit.status).toBe(200);
-    expect(candidateEdit.body.document_revision).toBe(2);
+    expect(Number(candidateEdit.body.document_revision)).toBe(2);
 
     const events = await request(
       `/v1/interview-rooms/${roomId}/events?after=0`,
