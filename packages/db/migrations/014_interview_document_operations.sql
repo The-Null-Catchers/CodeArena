@@ -2,7 +2,7 @@ CREATE TABLE interview_document_operations(
   room_id uuid NOT NULL REFERENCES interview_rooms ON DELETE CASCADE,
   client_id text NOT NULL CHECK(length(client_id) BETWEEN 1 AND 80),
   sequence bigint NOT NULL CHECK(sequence >= 0),
-  actor_user_id uuid NOT NULL REFERENCES users ON DELETE CASCADE,
+  actor_user_id uuid NOT NULL REFERENCES users,
   base_revision bigint NOT NULL CHECK(base_revision >= 0),
   revision bigint NOT NULL CHECK(revision > 0),
   change jsonb NOT NULL,
