@@ -79,7 +79,7 @@ export function transformChange(
 
   if (priorStart > incomingEnd) return next;
 
-  if (priorStart === incomingEnd && incoming.deleteCount === 0) return next;
+  if (priorStart === incomingEnd && incoming.change.deleteCount === 0) return next;
 
   if (
     priorStart === incomingStart &&
