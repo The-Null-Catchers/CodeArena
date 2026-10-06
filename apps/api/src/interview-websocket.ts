@@ -6,12 +6,18 @@ import type pg from "pg";
 import { z } from "zod";
 import { config } from "../../../packages/config/src/index.js";
 import { pool, tx } from "../../../packages/db/src/index.js";
+import {
+  applyOperation,
+  type AppliedOperation,
+  type CollaborationOperation,
+} from "../../../packages/shared/src/collaboration.js";
 import { redis } from "../../../packages/shared/src/events.js";
 
 const pathPattern = /^\/v1\/interview-rooms\/([0-9a-f-]{36})\/ws$/i;
 const eventChannel = "interview_room_events";
 const presenceChannel = "interview_room_presence";
 const maxMessageBytes = 256 * 1024;
+const maxDocumentBytes = 200_000;
 const presenceTtlMs = 45_000;
 const maxConnectionsPerUserRoom = 5;
 
@@ -289,12 +295,256 @@ async function updateDocument(
   }
 }
 
+type DocumentOperationMessage = CollaborationOperation & {
+  operationId?: string;
+};
+
+async function updateDocumentWithOperation(
+  connection: Connection,
+  body: DocumentOperationMessage,
+) {
+  if (connection.role === "observer") {
+    sendJson(connection, {
+      type: "error",
+      code: "forbidden",
+      operationId: body.operationId,
+      message: "Observers cannot edit the shared document",
+    });
+    return;
+  }
+
+  try {
+    const result = await tx(async (client) => {
+      const room = (
+        await client.query(
+          `SELECT status,document,document_revision
+             FROM interview_rooms
+            WHERE id=$1
+            FOR UPDATE`,
+          [connection.roomId],
+        )
+      ).rows[0];
+      if (!room) return { kind: "missing" as const };
+      const currentRevision = Number(room.document_revision);
+      if (room.status !== "active")
+        return { kind: "ended" as const, currentRevision };
+
+      const existing = (
+        await client.query(
+          `SELECT revision,event_id,transformed,created_at
+             FROM interview_document_operations
+            WHERE room_id=$1 AND client_id=$2 AND sequence=$3`,
+          [connection.roomId, body.clientId, body.sequence],
+        )
+      ).rows[0];
+      if (existing) {
+        return {
+          kind: "ok" as const,
+          revision: Number(existing.revision),
+          eventId: Number(existing.event_id),
+          transformed: existing.transformed,
+          updatedAt: existing.created_at,
+          idempotent: true,
+        };
+      }
+
+      if (body.baseRevision > currentRevision) {
+        return {
+          kind: "conflict" as const,
+          currentRevision,
+          code: "revision_conflict" as const,
+        };
+      }
+
+      const historyRows = (
+        await client.query(
+          `SELECT client_id,sequence,base_revision,revision,change,transformed
+             FROM interview_document_operations
+            WHERE room_id=$1 AND revision>$2
+            ORDER BY revision ASC`,
+          [connection.roomId, body.baseRevision],
+        )
+      ).rows;
+      if (historyRows.length !== currentRevision - body.baseRevision) {
+        return {
+          kind: "conflict" as const,
+          currentRevision,
+          code: "rebase_unavailable" as const,
+        };
+      }
+
+      const history: AppliedOperation[] = historyRows.map((row) => ({
+        clientId: row.client_id,
+        sequence: Number(row.sequence),
+        baseRevision: Number(row.base_revision),
+        revision: Number(row.revision),
+        change: row.change,
+        transformed: row.transformed,
+      }));
+
+      let applied: ReturnType<typeof applyOperation>;
+      try {
+        applied = applyOperation(
+          room.document,
+          {
+            clientId: body.clientId,
+            sequence: body.sequence,
+            baseRevision: body.baseRevision,
+            change: body.change,
+          },
+          history,
+          currentRevision,
+        );
+      } catch (error) {
+        return {
+          kind: "invalid" as const,
+          message: error instanceof Error ? error.message : "Invalid document operation",
+          currentRevision,
+        };
+      }
+      if (applied.document.length > maxDocumentBytes) {
+        return {
+          kind: "invalid" as const,
+          message: "Document exceeds maximum size",
+          currentRevision,
+        };
+      }
+
+      await client.query(
+        `UPDATE interview_rooms
+            SET document=$1,document_revision=$2
+          WHERE id=$3`,
+        [applied.document, applied.revision, connection.roomId],
+      );
+      const eventPayload = {
+        revision: applied.revision,
+        mode: "operation",
+        operation: {
+          clientId: body.clientId,
+          sequence: body.sequence,
+          baseRevision: body.baseRevision,
+          change: body.change,
+          transformed: applied.applied.transformed,
+        },
+      };
+      const event = (
+        await client.query(
+          `INSERT INTO interview_room_events(room_id,actor_user_id,kind,payload)
+           VALUES($1,$2,'document.updated',$3)
+           RETURNING id,created_at`,
+          [connection.roomId, connection.userId, JSON.stringify(eventPayload)],
+        )
+      ).rows[0];
+      await client.query(
+        `INSERT INTO interview_document_operations(
+           room_id,client_id,sequence,actor_user_id,base_revision,revision,change,transformed,event_id
+         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          connection.roomId,
+          body.clientId,
+          body.sequence,
+          connection.userId,
+          body.baseRevision,
+          applied.revision,
+          JSON.stringify(body.change),
+          JSON.stringify(applied.applied.transformed),
+          event.id,
+        ],
+      );
+      await client.query("SELECT pg_notify($1,$2)", [
+        eventChannel,
+        JSON.stringify({
+          roomId: connection.roomId,
+          eventId: Number(event.id),
+        }),
+      ]);
+      return {
+        kind: "ok" as const,
+        revision: applied.revision,
+        eventId: Number(event.id),
+        transformed: applied.applied.transformed,
+        updatedAt: event.created_at,
+        idempotent: false,
+      };
+    });
+
+    if (result.kind === "ok") {
+      sendJson(connection, {
+        type: "ack",
+        operation: "document.op",
+        operationId: body.operationId,
+        revision: result.revision,
+        eventId: result.eventId,
+        transformed: result.transformed,
+        updatedAt: result.updatedAt,
+        idempotent: result.idempotent,
+      });
+      return;
+    }
+    if (result.kind === "conflict") {
+      sendJson(connection, {
+        type: "error",
+        code: result.code,
+        operationId: body.operationId,
+        currentRevision: result.currentRevision,
+      });
+      return;
+    }
+    if (result.kind === "ended") {
+      sendJson(connection, {
+        type: "error",
+        code: "room_ended",
+        operationId: body.operationId,
+        currentRevision: result.currentRevision,
+      });
+      return;
+    }
+    if (result.kind === "invalid") {
+      sendJson(connection, {
+        type: "error",
+        code: "invalid_operation",
+        operationId: body.operationId,
+        currentRevision: result.currentRevision,
+        message: result.message,
+      });
+      return;
+    }
+    sendJson(connection, {
+      type: "error",
+      code: "document_operation_failed",
+      operationId: body.operationId,
+    });
+  } catch {
+    sendJson(connection, {
+      type: "error",
+      code: "document_operation_failed",
+      operationId: body.operationId,
+    });
+  }
+}
+
 const incomingMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("document.update"),
-      document: z.string().max(200000),
+      document: z.string().max(maxDocumentBytes),
       expectedRevision: z.number().int().min(0),
+      operationId: z.string().min(1).max(80).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("document.op"),
+      clientId: z.string().min(1).max(80),
+      sequence: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      baseRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      change: z
+        .object({
+          index: z.number().int().min(0).max(maxDocumentBytes),
+          deleteCount: z.number().int().min(0).max(maxDocumentBytes),
+          insert: z.string().max(maxDocumentBytes),
+        })
+        .strict(),
       operationId: z.string().min(1).max(80).optional(),
     })
     .strict(),
@@ -322,6 +572,8 @@ function handleText(connection: Connection, payload: Buffer) {
   }
   if (parsed.type === "document.update") {
     void updateDocument(connection, parsed);
+  } else if (parsed.type === "document.op") {
+    void updateDocumentWithOperation(connection, parsed);
   } else if (parsed.type === "presence.heartbeat") {
     void markPresence(connection, parsed.state).catch(() => {
       sendJson(connection, { type: "error", code: "presence_unavailable" });
