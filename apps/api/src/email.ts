@@ -9,6 +9,7 @@ import { hash } from "./auth.js";
 import { registerInterviewRooms } from "./interview-rooms.js";
 import { registerInterviewPresence } from "./interview-presence.js";
 import { registerInterviewWebSocket } from "./interview-websocket.js";
+import { registerInterviewParticipantDirectory } from "./interview-participant-directory.js";
 export async function enqueueAuthMail(
   c: pg.PoolClient,
   userId: string,
@@ -114,5 +115,6 @@ export function registerEmail(app: FastifyInstance) {
 
   registerInterviewRooms(app);
   registerInterviewPresence(app);
+  registerInterviewParticipantDirectory(app);
   registerInterviewWebSocket(app);
 }
