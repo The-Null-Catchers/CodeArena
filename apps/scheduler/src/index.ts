@@ -162,19 +162,31 @@ async function tick() {
       "SELECT * FROM dispatch_outbox ORDER BY created_at LIMIT 100",
     )
   ).rows) {
-    await queue(d.worker_id).add(
-      "execute",
-      { id: d.submission_id, attempt: d.attempt },
-      { jobId: `${d.submission_id}-${d.attempt}` },
-    );
-    await pool.query(
-      "DELETE FROM dispatch_outbox WHERE submission_id=$1 AND attempt=$2",
-      [d.submission_id, d.attempt],
-    );
-    await publish(d.submission_id, "state", {
-      state: "scheduled",
-      workerId: d.worker_id,
-    });
+    try {
+      await queue(d.worker_id).add(
+        "execute",
+        { id: d.submission_id, attempt: d.attempt },
+        { jobId: `${d.submission_id}-${d.attempt}` },
+      );
+      await pool.query(
+        "DELETE FROM dispatch_outbox WHERE submission_id=$1 AND attempt=$2",
+        [d.submission_id, d.attempt],
+      );
+      await publish(d.submission_id, "state", {
+        state: "scheduled",
+        workerId: d.worker_id,
+      });
+    } catch (error) {
+      // Outbox rows remain durable on failure. One broken worker queue
+      // must not prevent dispatching healthy workers' submissions.
+      structuredLog("scheduler", {
+        event: "dispatch_outbox_failed",
+        submissionId: d.submission_id,
+        workerId: d.worker_id,
+        attempt: d.attempt,
+        error: error instanceof Error ? error.message : "UNKNOWN_ERROR",
+      }, "error");
+    }
   }
   depth.set(
     Number(
