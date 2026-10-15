@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { Queue } from "bullmq";
-import { Registry, Gauge, collectDefaultMetrics } from "prom-client";
+import { Registry, Gauge, Counter, collectDefaultMetrics } from "prom-client";
 import { pool, tx } from "../../../packages/db/src/index.js";
 import {
   redis,
@@ -36,6 +36,12 @@ collectDefaultMetrics({ register: registry });
 const depth = new Gauge({
   name: "codearena_queue_depth",
   help: "Pending submissions",
+  registers: [registry],
+});
+const dispatchAttempts = new Counter({
+  name: "codearena_scheduler_outbox_dispatch_total",
+  help: "Outbox dispatch attempts by outcome",
+  labelNames: ["outcome"] as const,
   registers: [registry],
 });
 async function tick() {
@@ -189,6 +195,8 @@ async function tick() {
       }, "error");
     },
   );
+  dispatchAttempts.inc({ outcome: "success" }, dispatchResult.succeeded);
+  dispatchAttempts.inc({ outcome: "failure" }, dispatchResult.failed);
   // A partial broker outage must degrade readiness even when other workers
   // are dispatching. The durable outbox rows remain available for retry.
   if (dispatchResult.failed > 0)
