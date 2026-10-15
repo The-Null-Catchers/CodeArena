@@ -43,6 +43,11 @@ const outboxBacklog = new Gauge({
   help: "Durable outbox rows still awaiting dispatch or acknowledgement",
   registers: [registry],
 });
+const outboxOldestAge = new Gauge({
+  name: "codearena_scheduler_outbox_oldest_age_seconds",
+  help: "Age of the oldest durable undelivered outbox entry, in seconds",
+  registers: [registry],
+});
 const dispatchAttempts = new Counter({
   name: "codearena_scheduler_outbox_dispatch_total",
   help: "Outbox dispatch attempts by outcome",
@@ -203,8 +208,11 @@ async function tick() {
   dispatchAttempts.inc({ outcome: "success" }, dispatchResult.succeeded);
   dispatchAttempts.inc({ outcome: "failure" }, dispatchResult.failed);
   // Observe pending work even when a partial dispatch failure degrades readiness.
-  const outboxCount = await pool.query("SELECT count(*) AS total FROM dispatch_outbox");
-  outboxBacklog.set(Number(outboxCount.rows[0].total));
+  const outboxSnapshot = await pool.query(
+    "SELECT count(*)::int AS total, COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0)::float AS oldest_age_seconds FROM dispatch_outbox",
+  );
+  outboxBacklog.set(Number(outboxSnapshot.rows[0].total));
+  outboxOldestAge.set(Math.max(0, Number(outboxSnapshot.rows[0].oldest_age_seconds)));
   // A partial broker outage must degrade readiness even when other workers
   // are dispatching. The durable outbox rows remain available for retry.
   if (dispatchResult.failed > 0)
