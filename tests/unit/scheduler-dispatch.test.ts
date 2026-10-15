@@ -48,4 +48,21 @@ describe("durable outbox fault isolation", () => {
     expect(result).toEqual({ succeeded: 1, failed: 1 });
   });
 
+  it("keeps dispatching after an asynchronous diagnostic rejection", async () => {
+    const dispatched: number[] = [];
+    const result = await dispatchIndependently(
+      [1, 2, 3],
+      async (id) => {
+        if (id === 1 || id === 2) throw new Error("QUEUE_UNAVAILABLE");
+        dispatched.push(id);
+      },
+      async () => {
+        await Promise.resolve();
+        throw new Error("REMOTE_LOGGER_UNAVAILABLE");
+      },
+    );
+    expect(dispatched).toEqual([3]);
+    expect(result).toEqual({ succeeded: 1, failed: 2 });
+  });
+
 });
