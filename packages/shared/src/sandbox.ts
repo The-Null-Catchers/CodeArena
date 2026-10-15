@@ -388,15 +388,32 @@ export class DockerBackend implements ExecutionBackend {
             });
             const chunks: Buffer[] = [];
             const stderrChunks: Buffer[] = [];
+            let exportBytes = 0;
+            let exportOverflow = false;
+            const maxCacheExportBytes = 32 * 1024 * 1024;
             const stdoutSink = new Writable({
               write: (buf: Buffer, _encoding, done) => {
-                chunks.push(Buffer.from(buf));
+                exportBytes += buf.length;
+                if (exportBytes <= maxCacheExportBytes) {
+                  chunks.push(Buffer.from(buf));
+                } else {
+                  exportOverflow = true;
+                  // Stop retaining attacker-controlled compiler output in memory.
+                  void container?.kill().catch(() => {});
+                }
                 done();
               },
             });
+            let stderrBytes = 0;
+            const maxExportErrorBytes = 64 * 1024;
             const stderrSink = new Writable({
               write: (buf: Buffer, _encoding, done) => {
-                stderrChunks.push(Buffer.from(buf));
+                const remaining = maxExportErrorBytes - stderrBytes;
+                if (remaining > 0) {
+                  const kept = buf.subarray(0, remaining);
+                  stderrChunks.push(Buffer.from(kept));
+                  stderrBytes += kept.length;
+                }
                 done();
               },
             });
@@ -417,6 +434,7 @@ export class DockerBackend implements ExecutionBackend {
                   stderrChunks,
                 ).toString("utf8")}`,
               );
+            if (exportOverflow) throw new Error("COMPILE_CACHE_EXPORT_LIMIT_EXCEEDED");
             compiledArtifact = Buffer.concat(chunks);
             if (
               !compiledArtifact.byteLength ||
