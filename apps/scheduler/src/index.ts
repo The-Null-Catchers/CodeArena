@@ -158,7 +158,7 @@ async function tick() {
       ...event.data,
     });
   }
-  await dispatchIndependently(
+  const dispatchResult = await dispatchIndependently(
     (
       await pool.query(
         "SELECT * FROM dispatch_outbox ORDER BY created_at LIMIT 100",
@@ -189,6 +189,10 @@ async function tick() {
       }, "error");
     },
   );
+  // A partial broker outage must degrade readiness even when other workers
+  // are dispatching. The durable outbox rows remain available for retry.
+  if (dispatchResult.failed > 0)
+    throw new Error(`OUTBOX_DISPATCH_FAILURES:${dispatchResult.failed}`);
   depth.set(
     Number(
       (

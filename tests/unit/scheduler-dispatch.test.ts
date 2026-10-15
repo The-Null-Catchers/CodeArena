@@ -65,4 +65,18 @@ describe("durable outbox fault isolation", () => {
     expect(result).toEqual({ succeeded: 1, failed: 2 });
   });
 
+  it("reports partial dispatch failures to support degraded readiness", async () => {
+    const attempted: string[] = [];
+    const result = await dispatchIndependently(
+      ["worker-offline", "worker-online"],
+      async (id) => {
+        attempted.push(id);
+        if (id === "worker-offline") throw new Error("REDIS_QUEUE_UNAVAILABLE");
+      },
+      () => {},
+    );
+    expect(attempted).toEqual(["worker-offline", "worker-online"]);
+    expect(result).toEqual({ succeeded: 1, failed: 1 });
+  });
+
 });
