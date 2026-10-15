@@ -2,7 +2,7 @@
 export async function dispatchIndependently<T>(
   entries: readonly T[],
   dispatch: (entry: T) => Promise<void>,
-  reportFailure: (entry: T, error: unknown) => void,
+  reportFailure: (entry: T, error: unknown) => void | Promise<void>,
 ): Promise<{ succeeded: number; failed: number }> {
   let succeeded = 0;
   let failed = 0;
@@ -13,7 +13,7 @@ export async function dispatchIndependently<T>(
     } catch (error) {
       failed++;
       try {
-        reportFailure(entry, error);
+        await reportFailure(entry, error);
       } catch {
         // Diagnostics are best effort. Never let a broken logger starve
         // unrelated durable outbox entries in the same scheduler tick.
