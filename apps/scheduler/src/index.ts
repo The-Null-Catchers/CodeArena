@@ -11,6 +11,7 @@ import {
 } from "../../../packages/shared/src/events.js";
 import { structuredLog } from "../../../packages/shared/src/observability.js";
 import { tenantConcurrencyAvailable } from "../../../packages/shared/src/admission-budget.js";
+import { dispatchIndependently } from "./dispatch.js";
 const queues = new Map<string, Queue>();
 function queue(id: string) {
   if (!queues.has(id))
@@ -157,12 +158,13 @@ async function tick() {
       ...event.data,
     });
   }
-  for (const d of (
-    await pool.query(
-      "SELECT * FROM dispatch_outbox ORDER BY created_at LIMIT 100",
-    )
-  ).rows) {
-    try {
+  await dispatchIndependently(
+    (
+      await pool.query(
+        "SELECT * FROM dispatch_outbox ORDER BY created_at LIMIT 100",
+      )
+    ).rows,
+    async (d) => {
       await queue(d.worker_id).add(
         "execute",
         { id: d.submission_id, attempt: d.attempt },
@@ -176,9 +178,8 @@ async function tick() {
         state: "scheduled",
         workerId: d.worker_id,
       });
-    } catch (error) {
-      // Outbox rows remain durable on failure. One broken worker queue
-      // must not prevent dispatching healthy workers' submissions.
+    },
+    (d, error) => {
       structuredLog("scheduler", {
         event: "dispatch_outbox_failed",
         submissionId: d.submission_id,
@@ -186,8 +187,8 @@ async function tick() {
         attempt: d.attempt,
         error: error instanceof Error ? error.message : "UNKNOWN_ERROR",
       }, "error");
-    }
-  }
+    },
+  );
   depth.set(
     Number(
       (
