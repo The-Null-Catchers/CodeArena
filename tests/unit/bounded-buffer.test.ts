@@ -26,6 +26,28 @@ describe("bounded Docker binary collection", () => {
     expect(collector.toBuffer().toString()).toBe("secret");
   });
 
+  it("handles many tiny chunks without retaining per-chunk buffers", () => {
+    const collector = new BoundedBuffer(100_000);
+    const oneByte = Buffer.from("x");
+    for (let i = 0; i < 100_000; i++) {
+      expect(collector.push(oneByte)).toBe(true);
+    }
+    expect(collector.byteLength).toBe(100_000);
+    expect(collector.toBuffer().length).toBe(100_000);
+    expect(collector.push(oneByte)).toBe(false);
+    expect(collector.byteLength).toBe(100_000);
+  });
+
+  it("returns a defensive copy, not mutable internal storage", () => {
+    const collector = new BoundedBuffer(8);
+    collector.push(Buffer.from("abcd"));
+    const exposed = collector.toBuffer();
+    exposed.fill(0);
+    expect(collector.toBuffer().toString()).toBe("abcd");
+    collector.push(Buffer.from("efgh"));
+    expect(collector.toBuffer().toString()).toBe("abcdefgh");
+  });
+
   it("handles exact limits, zero budgets and rejects invalid bounds", () => {
     const exact = new BoundedBuffer(3);
     expect(exact.push(Buffer.from("abc"))).toBe(true);
