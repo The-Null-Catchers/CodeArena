@@ -1,4 +1,5 @@
 import { OutputBudget } from "./output.js";
+import { BoundedBuffer } from "./bounded-buffer.js";
 import Docker from "dockerode";
 import { Writable } from "node:stream";
 import tar from "tar-stream";
@@ -386,34 +387,20 @@ export class DockerBackend implements ExecutionBackend {
               hijack: true,
               stdin: false,
             });
-            const chunks: Buffer[] = [];
-            const stderrChunks: Buffer[] = [];
-            let exportBytes = 0;
-            let exportOverflow = false;
-            const maxCacheExportBytes = 32 * 1024 * 1024;
+            const artifactBuffer = new BoundedBuffer(32 * 1024 * 1024);
+            const diagnosticBuffer = new BoundedBuffer(64 * 1024);
             const stdoutSink = new Writable({
               write: (buf: Buffer, _encoding, done) => {
-                exportBytes += buf.length;
-                if (exportBytes <= maxCacheExportBytes) {
-                  chunks.push(Buffer.from(buf));
-                } else {
-                  exportOverflow = true;
-                  // Stop retaining attacker-controlled compiler output in memory.
+                if (!artifactBuffer.push(buf)) {
+                  // Stop an oversized export without retaining unbounded bytes.
                   void container?.kill().catch(() => {});
                 }
                 done();
               },
             });
-            let stderrBytes = 0;
-            const maxExportErrorBytes = 64 * 1024;
             const stderrSink = new Writable({
               write: (buf: Buffer, _encoding, done) => {
-                const remaining = maxExportErrorBytes - stderrBytes;
-                if (remaining > 0) {
-                  const kept = buf.subarray(0, remaining);
-                  stderrChunks.push(Buffer.from(kept));
-                  stderrBytes += kept.length;
-                }
+                diagnosticBuffer.push(buf);
                 done();
               },
             });
@@ -430,12 +417,10 @@ export class DockerBackend implements ExecutionBackend {
             });
             if ((await exportExec.inspect()).ExitCode !== 0)
               throw new Error(
-                `COMPILE_CACHE_EXPORT_FAILED:${Buffer.concat(
-                  stderrChunks,
-                ).toString("utf8")}`,
+                `COMPILE_CACHE_EXPORT_FAILED:${diagnosticBuffer.toBuffer().toString("utf8")}`,
               );
-            if (exportOverflow) throw new Error("COMPILE_CACHE_EXPORT_LIMIT_EXCEEDED");
-            compiledArtifact = Buffer.concat(chunks);
+            if (artifactBuffer.truncated) throw new Error("COMPILE_CACHE_EXPORT_LIMIT_EXCEEDED");
+            compiledArtifact = artifactBuffer.toBuffer();
             if (
               !compiledArtifact.byteLength ||
               compiledArtifact.byteLength > 32 * 1024 * 1024
