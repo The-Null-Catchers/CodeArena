@@ -38,6 +38,11 @@ const depth = new Gauge({
   help: "Pending submissions",
   registers: [registry],
 });
+const outboxBacklog = new Gauge({
+  name: "codearena_scheduler_outbox_backlog",
+  help: "Durable outbox rows still awaiting dispatch or acknowledgement",
+  registers: [registry],
+});
 const dispatchAttempts = new Counter({
   name: "codearena_scheduler_outbox_dispatch_total",
   help: "Outbox dispatch attempts by outcome",
@@ -197,6 +202,9 @@ async function tick() {
   );
   dispatchAttempts.inc({ outcome: "success" }, dispatchResult.succeeded);
   dispatchAttempts.inc({ outcome: "failure" }, dispatchResult.failed);
+  // Observe pending work even when a partial dispatch failure degrades readiness.
+  const outboxCount = await pool.query("SELECT count(*) AS total FROM dispatch_outbox");
+  outboxBacklog.set(Number(outboxCount.rows[0].total));
   // A partial broker outage must degrade readiness even when other workers
   // are dispatching. The durable outbox rows remain available for retry.
   if (dispatchResult.failed > 0)
