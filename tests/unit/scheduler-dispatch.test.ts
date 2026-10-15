@@ -32,4 +32,20 @@ describe("durable outbox fault isolation", () => {
     expect(failures).toEqual(["lost"]);
     expect(result).toEqual({ succeeded: 1, failed: 1 });
   });
+  it("keeps dispatching when the diagnostic reporter throws", async () => {
+    const dispatched: string[] = [];
+    const result = await dispatchIndependently(
+      ["broken", "healthy"],
+      async (id) => {
+        if (id === "broken") throw new Error("BROKER_DOWN");
+        dispatched.push(id);
+      },
+      () => {
+        throw new Error("LOGGER_DOWN");
+      },
+    );
+    expect(dispatched).toEqual(["healthy"]);
+    expect(result).toEqual({ succeeded: 1, failed: 1 });
+  });
+
 });
