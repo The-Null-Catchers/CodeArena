@@ -12,7 +12,12 @@ export async function dispatchIndependently<T>(
       succeeded++;
     } catch (error) {
       failed++;
-      reportFailure(entry, error);
+      try {
+        reportFailure(entry, error);
+      } catch {
+        // Diagnostics are best effort. Never let a broken logger starve
+        // unrelated durable outbox entries in the same scheduler tick.
+      }
     }
   }
   return { succeeded, failed };
