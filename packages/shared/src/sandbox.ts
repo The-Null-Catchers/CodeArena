@@ -404,9 +404,16 @@ export class DockerBackend implements ExecutionBackend {
                 done();
               },
             });
+            let stderrBytes = 0;
+            const maxExportErrorBytes = 64 * 1024;
             const stderrSink = new Writable({
               write: (buf: Buffer, _encoding, done) => {
-                stderrChunks.push(Buffer.from(buf));
+                const remaining = maxExportErrorBytes - stderrBytes;
+                if (remaining > 0) {
+                  const kept = buf.subarray(0, remaining);
+                  stderrChunks.push(Buffer.from(kept));
+                  stderrBytes += kept.length;
+                }
                 done();
               },
             });
