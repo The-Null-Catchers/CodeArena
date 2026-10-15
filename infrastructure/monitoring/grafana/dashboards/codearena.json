@@ -112,6 +112,42 @@
         }
       ],
       "datasource": "Prometheus"
+    },
+    {
+      "id": 7,
+      "title": "Scheduler durable outbox backlog",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "codearena_scheduler_outbox_backlog",
+          "refId": "A"
+        }
+      ],
+      "datasource": "Prometheus"
+    },
+    {
+      "id": 8,
+      "title": "Outbox dispatch failures / second",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(codearena_scheduler_outbox_dispatch_total{outcome=\"failure\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "datasource": "Prometheus"
     }
   ]
 }
