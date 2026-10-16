@@ -53,6 +53,14 @@ describe("Grafana execution dashboard", () => {
     );
   });
 
+  it("exposes scheduler tick p95 latency from histogram buckets", () => {
+    const panel = dashboard.panels.find((item) => item.title === "Scheduler tick p95 latency");
+    expect(panel).toBeDefined();
+    expect(panel?.targets.map((target) => target.expr)).toContain(
+      "histogram_quantile(0.95, sum by (le) (rate(codearena_scheduler_tick_duration_seconds_bucket[5m])))",
+    );
+  });
+
   it("has valid Prometheus expressions for each panel", () => {
     for (const panel of dashboard.panels) {
       expect(panel.targets.length).toBeGreaterThan(0);
