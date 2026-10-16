@@ -43,6 +43,30 @@ describe("interview collaboration adapter", () => {
     expect(appliedSecond.applied.transformed.index).toBe(1);
   });
 
+  it("converges on identical text regardless of concurrent insert arrival order", () => {
+    const a: CollaborationOperation = {
+      clientId: "client-a",
+      sequence: 1,
+      baseRevision: 0,
+      change: { index: 0, deleteCount: 0, insert: "A" },
+    };
+    const b: CollaborationOperation = {
+      clientId: "client-b",
+      sequence: 1,
+      baseRevision: 0,
+      change: { index: 0, deleteCount: 0, insert: "B" },
+    };
+    const aFirst = applyOperation("", a, [], 0);
+    const ab = applyOperation(aFirst.document, b, [aFirst.applied], 1);
+    const bFirst = applyOperation("", b, [], 0);
+    const ba = applyOperation(bFirst.document, a, [bFirst.applied], 1);
+
+    expect(ab.document).toBe("AB");
+    expect(ba.document).toBe(ab.document);
+    expect(ab.revision).toBe(2);
+    expect(ba.revision).toBe(2);
+  });
+
   it("rebases an insertion over an earlier insertion before its cursor", () => {
     const history: AppliedOperation[] = [
       {
