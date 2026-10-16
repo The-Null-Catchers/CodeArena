@@ -141,4 +141,29 @@ describe("durable outbox fault isolation", () => {
   });
 
 
+  it("drains durable pending entries across multiple intermittent broker recoveries", async () => {
+    const pending = new Set(["a", "b", "c", "d"]);
+    const completed: string[] = [];
+    let available = new Set(["a"]);
+    const dispatch = async (id: string) => {
+      if (!available.has(id)) throw new Error("QUEUE_TEMPORARILY_UNAVAILABLE");
+      pending.delete(id);
+      completed.push(id);
+    };
+    const first = await dispatchIndependently([...pending], dispatch, () => {});
+    expect(first).toEqual({ succeeded: 1, failed: 3 });
+    expect([...pending]).toEqual(["b", "c", "d"]);
+    available = new Set(["b", "d"]);
+    const second = await dispatchIndependently([...pending], dispatch, () => {});
+    expect(second).toEqual({ succeeded: 2, failed: 1 });
+    expect([...pending]).toEqual(["c"]);
+    available = new Set(["c"]);
+    const third = await dispatchIndependently([...pending], dispatch, () => {});
+    expect(third).toEqual({ succeeded: 1, failed: 0 });
+    expect([...pending]).toEqual([]);
+    expect(completed).toEqual(["a", "b", "d", "c"]);
+    expect(new Set(completed).size).toBe(4);
+  });
+
+
 });
