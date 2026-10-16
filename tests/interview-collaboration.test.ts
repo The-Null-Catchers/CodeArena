@@ -67,6 +67,32 @@ describe("interview collaboration adapter", () => {
     expect(ba.revision).toBe(2);
   });
 
+  it("converges for three simultaneous inserts across all arrival permutations", () => {
+    const operations: CollaborationOperation[] = ["client-a", "client-b", "client-c"].map(
+      (clientId, index) => ({
+        clientId,
+        sequence: 1,
+        baseRevision: 0,
+        change: { index: 0, deleteCount: 0, insert: String.fromCharCode(65 + index) },
+      }),
+    );
+    const permutations = [
+      [0, 1, 2], [0, 2, 1], [1, 0, 2],
+      [1, 2, 0], [2, 0, 1], [2, 1, 0],
+    ];
+    for (const order of permutations) {
+      let document = "";
+      const history: AppliedOperation[] = [];
+      for (const index of order) {
+        const next = applyOperation(document, operations[index], history, history.length);
+        document = next.document;
+        history.push(next.applied);
+      }
+      expect(document).toBe("ABC");
+      expect(history.map((entry) => entry.revision)).toEqual([1, 2, 3]);
+    }
+  });
+
   it("rebases an insertion over an earlier insertion before its cursor", () => {
     const history: AppliedOperation[] = [
       {
