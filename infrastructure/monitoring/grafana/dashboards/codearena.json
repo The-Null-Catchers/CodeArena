@@ -166,6 +166,24 @@
         }
       ],
       "datasource": "Prometheus"
+    },
+    {
+      "id": 10,
+      "title": "Scheduler failed ticks / second",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(codearena_scheduler_ticks_total{outcome=\"failure\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "datasource": "Prometheus"
     }
   ]
 }
