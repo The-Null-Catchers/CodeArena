@@ -44,6 +44,15 @@ describe("Grafana execution dashboard", () => {
     expect(expressions).toContain("codearena_scheduler_outbox_oldest_age_seconds");
   });
 
+  it("tracks failed scheduler ticks using the Prometheus counter", () => {
+    const expressions = dashboard.panels.flatMap((panel) =>
+      panel.targets.map((target) => target.expr),
+    );
+    expect(expressions).toContain(
+      'sum(rate(codearena_scheduler_ticks_total{outcome="failure"}[5m]))',
+    );
+  });
+
   it("has valid Prometheus expressions for each panel", () => {
     for (const panel of dashboard.panels) {
       expect(panel.targets.length).toBeGreaterThan(0);
