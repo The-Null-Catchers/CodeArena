@@ -79,4 +79,37 @@ describe("durable outbox fault isolation", () => {
     expect(result).toEqual({ succeeded: 1, failed: 1 });
   });
 
+  it("retries only durable failed entries after broker recovery", async () => {
+    const pending = new Set(["first", "second", "third"]);
+    const completed: string[] = [];
+    let brokerAvailable = false;
+    const dispatch = async (id: string) => {
+      if (id === "second" && !brokerAvailable)
+        throw new Error("BROKER_UNAVAILABLE");
+      pending.delete(id);
+      completed.push(id);
+    };
+    const failures: string[] = [];
+    const first = await dispatchIndependently(
+      [...pending],
+      dispatch,
+      (id) => failures.push(id),
+    );
+    expect(first).toEqual({ succeeded: 2, failed: 1 });
+    expect([...pending]).toEqual(["second"]);
+    expect(failures).toEqual(["second"]);
+    brokerAvailable = true;
+    const recovered = await dispatchIndependently(
+      [...pending],
+      dispatch,
+      () => {
+        throw new Error("unexpected retry failure");
+      },
+    );
+    expect(recovered).toEqual({ succeeded: 1, failed: 0 });
+    expect([...pending]).toEqual([]);
+    expect(completed).toEqual(["first", "third", "second"]);
+  });
+
+
 });
