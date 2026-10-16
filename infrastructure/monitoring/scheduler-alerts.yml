@@ -1,0 +1,24 @@
+groups:
+  - name: codearena-scheduler
+    rules:
+      - alert: CodeArenaSchedulerNotReady
+        expr: up{job="scheduler"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CodeArena scheduler metrics endpoint is unavailable"
+      - alert: CodeArenaSchedulerOutboxStalled
+        expr: codearena_scheduler_outbox_oldest_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Oldest scheduler outbox entry has waited over five minutes"
+      - alert: CodeArenaSchedulerTicksFailing
+        expr: increase(codearena_scheduler_ticks_total{outcome="failure"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Repeated CodeArena scheduler cycles are failing"
