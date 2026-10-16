@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import { Queue } from "bullmq";
-import { Registry, Gauge, Counter, collectDefaultMetrics } from "prom-client";
+import { Registry, Gauge, Counter, Histogram, collectDefaultMetrics } from "prom-client";
 import { pool, tx } from "../../../packages/db/src/index.js";
 import {
   redis,
@@ -58,6 +58,13 @@ const schedulerTicks = new Counter({
   name: "codearena_scheduler_ticks_total",
   help: "Scheduler tick outcomes, including failed database or broker dispatch passes",
   labelNames: ["outcome"] as const,
+  registers: [registry],
+});
+const schedulerTickDuration = new Histogram({
+  name: "codearena_scheduler_tick_duration_seconds",
+  help: "Duration of completed scheduler cycles by outcome",
+  labelNames: ["outcome"] as const,
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
   registers: [registry],
 });
 async function tick() {
@@ -246,14 +253,17 @@ await health.listen({ port: 4200, host: "0.0.0.0" });
 let executing: Promise<void> | undefined;
 const timer = setInterval(() => {
   if (executing || stopping) return;
+  const startedAt = process.hrtime.bigint();
   executing = tick()
     .then(() => {
       healthy = true;
       schedulerTicks.inc({ outcome: "success" });
+      schedulerTickDuration.observe({ outcome: "success" }, Number(process.hrtime.bigint() - startedAt) / 1e9);
     })
     .catch((e) => {
       healthy = false;
       schedulerTicks.inc({ outcome: "failure" });
+      schedulerTickDuration.observe({ outcome: "failure" }, Number(process.hrtime.bigint() - startedAt) / 1e9);
       structuredLog(
         "scheduler",
         {
