@@ -112,4 +112,33 @@ describe("durable outbox fault isolation", () => {
   });
 
 
+  it("preserves every outbox item when the broker is entirely unavailable", async () => {
+    const pending = new Set(["job-a", "job-b", "job-c"]);
+    let brokerReady = false;
+    const completed: string[] = [];
+    const dispatch = async (id: string) => {
+      if (!brokerReady) throw new Error("REDIS_DOWN");
+      pending.delete(id);
+      completed.push(id);
+    };
+    const first = await dispatchIndependently(
+      [...pending],
+      dispatch,
+      async () => {},
+    );
+    expect(first).toEqual({ succeeded: 0, failed: 3 });
+    expect([...pending]).toEqual(["job-a", "job-b", "job-c"]);
+
+    brokerReady = true;
+    const next = await dispatchIndependently(
+      [...pending],
+      dispatch,
+      () => { throw new Error("unexpected failure"); },
+    );
+    expect(next).toEqual({ succeeded: 3, failed: 0 });
+    expect([...pending]).toEqual([]);
+    expect(completed).toEqual(["job-a", "job-b", "job-c"]);
+  });
+
+
 });
