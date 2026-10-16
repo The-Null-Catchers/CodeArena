@@ -166,4 +166,25 @@ describe("durable outbox fault isolation", () => {
   });
 
 
+  it("counts all attempted dispatches even when asynchronous diagnostics fail", async () => {
+    const attempted: number[] = [];
+    const reported: number[] = [];
+    const result = await dispatchIndependently(
+      [1, 2, 3, 4],
+      async (id) => {
+        attempted.push(id);
+        if (id !== 3) throw new Error("BROKER_UNAVAILABLE");
+      },
+      async (id) => {
+        reported.push(id);
+        throw new Error("LOGGING_UNAVAILABLE");
+      },
+    );
+    expect(attempted).toEqual([1, 2, 3, 4]);
+    expect(reported).toEqual([1, 2, 4]);
+    expect(result).toEqual({ succeeded: 1, failed: 3 });
+    expect(result.succeeded + result.failed).toBe(attempted.length);
+  });
+
+
 });
