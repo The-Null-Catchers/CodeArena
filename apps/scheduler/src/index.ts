@@ -54,6 +54,12 @@ const dispatchAttempts = new Counter({
   labelNames: ["outcome"] as const,
   registers: [registry],
 });
+const schedulerTicks = new Counter({
+  name: "codearena_scheduler_ticks_total",
+  help: "Scheduler tick outcomes, including failed database or broker dispatch passes",
+  labelNames: ["outcome"] as const,
+  registers: [registry],
+});
 async function tick() {
   const controlEvents: Array<{
     stream: string;
@@ -243,9 +249,11 @@ const timer = setInterval(() => {
   executing = tick()
     .then(() => {
       healthy = true;
+      schedulerTicks.inc({ outcome: "success" });
     })
     .catch((e) => {
       healthy = false;
+      schedulerTicks.inc({ outcome: "failure" });
       structuredLog(
         "scheduler",
         {
