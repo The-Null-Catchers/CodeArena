@@ -138,6 +138,23 @@ describe("interview collaboration adapter", () => {
     expect(result.applied.transformed.deleteCount).toBe(1);
   });
 
+  it("preserves nonoverlapping concurrent replacements in either arrival order", () => {
+    const first: CollaborationOperation = {
+      clientId: "client-a", sequence: 1, baseRevision: 0,
+      change: { index: 0, deleteCount: 3, insert: "ONE" },
+    };
+    const second: CollaborationOperation = {
+      clientId: "client-b", sequence: 1, baseRevision: 0,
+      change: { index: 4, deleteCount: 3, insert: "TWO" },
+    };
+    for (const [left, right] of [[first, second], [second, first]]) {
+      const applied = applyOperation("abc def", left, [], 0);
+      const result = applyOperation(applied.document, right, [applied.applied], 1);
+      expect(result.document).toBe("ONE TWO");
+      expect(result.revision).toBe(2);
+    }
+  });
+
   it("rejects revisions from the future", () => {
     expect(() =>
       applyOperation(
