@@ -31,7 +31,7 @@ After a host crash, runtime container leftovers are reaped at next worker startu
 
 ## Monitoring
 
-Prometheus scrapes API, scheduler, and worker metrics. Grafana provisioning supplies execution/API/queue/worker dashboards. Current measurements cover API route latency/status, active slots, execution duration and pending queue depth, plus process defaults. Fine-grained DB/Redis latency, launch failure counters, host CPU/RAM, and full p50/p95/p99 analytics are roadmap work.
+Prometheus scrapes API, scheduler, worker, delivery-worker and maintenance-worker metrics. Grafana includes Scheduler outbox backlog, oldest pending age, dispatch failure rate, failed tick rate and tick p95 latency alongside execution metrics. Prometheus loads `infrastructure/monitoring/scheduler-alerts.yml` through Docker Compose: rules check scheduler availability, outbox age over 300 seconds and repeated failed ticks. Infrastructure CI validates configuration and rules with `promtool`. External alert notifications require independently configured Alertmanager/receivers; production thresholds, host telemetry and longer load behavior remain unqualified.
 
 Inspect readiness for dependencies, worker runtime availability, queue backlog, stale heartbeats, dead-letter webhooks, and mail outbox. Do not interpret a live HTTP process as a ready execution fleet.
 
@@ -45,7 +45,7 @@ Run all gates in VERIFICATION.md, build immutable images, review dependencies, c
 
 ## Object-store image provenance
 
-MinIO is built locally from upstream commit `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` (RELEASE.2025-10-15T17-29-55Z), with source identity verified during the build. Its upstream AGPL license is included in the image. This removes reliance on unavailable Docker Hub images. Review upstream licensing before redistribution. Core execution CI starts the services required for execution. A separate infrastructure-smoke job builds this image and starts the full Compose stack, checking API readiness through Caddy, Prometheus, Grafana and MinIO. Object storage remains unused by application artifacts until an artifact API is implemented.
+MinIO is built locally from upstream commit `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a` (RELEASE.2025-10-15T17-29-55Z), with source identity verified during the build. Its upstream AGPL license is included in the image. This removes reliance on unavailable Docker Hub images. Review upstream licensing before redistribution. Core execution CI starts the services required for execution. A separate infrastructure-smoke job builds this image and starts the full Compose stack, checking API readiness through Caddy, Prometheus, Grafana and MinIO. MinIO supports application artifacts and compilation caching with authorized browsing/download and retention management; verify credentials, persistence and backup procedures on the target host.
 
 ## Redis outage behavior
 
