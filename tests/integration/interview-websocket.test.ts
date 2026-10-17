@@ -59,9 +59,9 @@ async function request(
 
 type JsonMessage = Record<string, any>;
 
-function client(token: string, after = 0) {
+function client(token: string, after = 0, targetRoomId = roomId) {
   const socket = new WebSocket(
-    `${wsBase}/v1/interview-rooms/${roomId}/ws?after=${after}`,
+    `${wsBase}/v1/interview-rooms/${targetRoomId}/ws?after=${after}`,
     ["codearena.v1", `codearena.jwt.${token}`],
   );
   const queued: JsonMessage[] = [];
@@ -260,4 +260,62 @@ describe("interview WebSocket collaboration", () => {
     reconnected.socket.close();
     outsider.socket.close();
   }, 20_000);
+  it("converges simultaneous WebSocket edits from two authenticated participants", async () => {
+    // Use a fresh room: legacy document.update writes are not part of
+    // the operation-rebase history and cannot serve as an operation baseline.
+    const created = await request("/v1/interview-rooms", tokens.owner, "POST", {
+      projectId,
+      title: "Concurrent operation interview",
+    });
+    expect(created.status).toBe(201);
+    const concurrentRoomId = String(created.body.id);
+    const invited = await request(
+      `/v1/interview-rooms/${concurrentRoomId}/participants`,
+      tokens.owner,
+      "POST",
+      { userId: ids.candidate, role: "candidate" },
+    );
+    expect(invited.status).toBe(201);
+    const current = await request(`/v1/interview-rooms/${concurrentRoomId}`, tokens.owner);
+    expect(current.status).toBe(200);
+    const baseline = String(current.body.document ?? "");
+    const revision = Number(current.body.document_revision);
+    const owner = client(tokens.owner, 0, concurrentRoomId);
+    const candidate = client(tokens.candidate, 0, concurrentRoomId);
+    try {
+      await Promise.all([owner.opened, candidate.opened]);
+      await Promise.all([
+        owner.next((m) => m.type === "ready"),
+        candidate.next((m) => m.type === "ready"),
+      ]);
+      const position = baseline.length;
+      owner.socket.send(JSON.stringify({
+        type: "document.op", clientId: "live-owner", sequence: 1,
+        baseRevision: revision,
+        change: { index: position, deleteCount: 0, insert: "A" },
+        operationId: "live-owner-op",
+      }));
+      candidate.socket.send(JSON.stringify({
+        type: "document.op", clientId: "live-candidate", sequence: 1,
+        baseRevision: revision,
+        change: { index: position, deleteCount: 0, insert: "B" },
+        operationId: "live-candidate-op",
+      }));
+      const [ownerAck, candidateAck] = await Promise.all([
+        owner.next((m) => m.type === "ack" && m.operationId === "live-owner-op"),
+        candidate.next((m) => m.type === "ack" && m.operationId === "live-candidate-op"),
+      ]);
+      expect([ownerAck.revision, candidateAck.revision].sort((a, b) => a - b))
+        .toEqual([revision + 1, revision + 2]);
+      const updated = await request(`/v1/interview-rooms/${concurrentRoomId}`, tokens.owner);
+      expect(updated.status).toBe(200);
+      expect(Number(updated.body.document_revision)).toBe(revision + 2);
+      expect(updated.body.document).toBe(baseline + "BA");
+    } finally {
+      owner.socket.close();
+      candidate.socket.close();
+    }
+  }, 20_000);
+
+
 });
