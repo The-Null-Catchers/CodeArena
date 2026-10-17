@@ -16,7 +16,7 @@ This is an implementation of the execution and judging foundation, not a certifi
 
 Working code includes registration/login and Argon2id passwords; rotating hashed refresh tokens; verification/reset mail outbox; tenant memberships and projects; hashed scoped API keys; eight centrally configured runtime definitions; bounded submissions and batches; transactional quotas; scheduler leases and outbox dispatch; independently constrained execution containers; cancellation; weighted test judging; hidden-output suppression; drafts/history; SSE output replay; encrypted webhook signing secrets and retry delivery; TypeScript SDK/CLI; metrics and dashboards.
 
-Interview collaboration, education, advanced analytics, full administrative UI, and challenge leaderboards remain on the explicit [roadmap](docs/ROADMAP.md). MinIO now backs authorized immutable compilation-log artifacts and compiled-output caching for supported single-output toolchains. Java cache snapshots remain intentionally disabled until multi-file class output is captured safely. Pages display real API data, with honest empty/error states.
+Interview rooms support authenticated WebSocket collaboration, presence, durable replay and revisioned plain-text operations; concurrent edits and reconnect replay have integration coverage. Challenge leaderboards, platform administration, execution analytics, MinIO artifacts and Java multi-output caching are implemented. Education, SQL/interactive judges, stronger isolation and target-host qualification remain on the [roadmap](docs/ROADMAP.md). The current collaboration adapter is not a CRDT.
 
 ## Architecture
 

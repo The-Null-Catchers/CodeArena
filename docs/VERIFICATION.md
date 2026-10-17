@@ -1,5 +1,11 @@
 # Verification record
 
+## Recent interview and monitoring CI evidence
+
+PR [#72](https://github.com/The-Null-Catchers/CodeArena/pull/72) merged after all three checks succeeded on commit `c5b62e1e0eaed39c93989a9117d01e7e2807a445`: concurrent authenticated WebSocket operations were verified against live API/database services. PR [#73](https://github.com/The-Null-Catchers/CodeArena/pull/73) merged after all three checks succeeded on commit `58d323adb45de4505ee5eb0ce08d52d2f7b8cc66`: reconnecting and replaying a previously acknowledged operation does not duplicate the persisted edit. This does not qualify sustained load or production-host resilience.
+
+PR [#68](https://github.com/The-Null-Catchers/CodeArena/pull/68) added `promtool` verification of Prometheus settings and scheduler alert rules within infrastructure CI. Alertmanager delivery and production alert tuning remain unverified.
+
 ## Verified Redis recovery
 
 Bounded Redis commands, independent BullMQ worker connections, database cancellation polling, atomic stream retention and a dedicated SSE deadline are implemented. New real-Redis probes cover successful publication, an open connection whose server stops responding, and reconnect after offline rejection. A live two-worker fleet scenario stops the Compose broker during execution, checks completion/cancellation and a retained dispatch outbox, then checks resumption without worker restarts, single completion, usage records and sandbox cleanup.
