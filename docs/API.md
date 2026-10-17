@@ -1,5 +1,12 @@
 # Developer API
 
+## Education courses (initial API)
+
+- `POST /v1/education/courses` accepts `{ "projectId": "<uuid>", "title": "...", "description": "..." }`; requires an authenticated user with owner/admin project authorization. Courses start as drafts.
+- `GET /v1/education/projects/:projectId/courses` returns up to 100 courses. Project owners/admins see all statuses; other authorized project members see only published courses for which they have an enrollment record. Project API keys cannot access these user-specific endpoints.
+
+Assignments, enrollment management, grading, attempt consumption and education UI are not yet exposed by this API.
+
 ## Authentication and sessions
 
 Use `Authorization: Bearer <access-token-or-api-key>`. Registration/login return a 15-minute access JWT and a 30-day refresh secret. Refresh rotates the database session and rejects old token reuse. Logout revokes all sessions for that user. The web client currently requires another login when its access token expires; automatic refresh is a planned improvement.
