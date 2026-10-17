@@ -260,6 +260,45 @@ describe("interview WebSocket collaboration", () => {
     reconnected.socket.close();
     outsider.socket.close();
   }, 20_000);
+  it("acknowledges a retried operation without duplicating the document edit", async () => {
+    const created = await request("/v1/interview-rooms", tokens.owner, "POST", {
+      projectId, title: "Idempotent reconnect interview",
+    });
+    expect(created.status).toBe(201);
+    const retryRoomId = String(created.body.id);
+    const first = client(tokens.owner, 0, retryRoomId);
+    await first.opened;
+    await first.next((m) => m.type === "ready");
+    const operation = {
+      type: "document.op", clientId: "retry-test-client", sequence: 1,
+      baseRevision: 0, change: { index: 0, deleteCount: 0, insert: "once" },
+      operationId: "retry-operation",
+    };
+    try {
+      first.socket.send(JSON.stringify(operation));
+      const firstAck = await first.next((m) => m.type === "ack" && m.operationId === operation.operationId);
+      expect(firstAck.idempotent).toBe(false);
+      first.socket.close();
+      const second = client(tokens.owner, Number(firstAck.eventId), retryRoomId);
+      try {
+        await second.opened;
+        await second.next((m) => m.type === "ready");
+        second.socket.send(JSON.stringify(operation));
+        const retryAck = await second.next((m) => m.type === "ack" && m.operationId === operation.operationId);
+        expect(retryAck.idempotent).toBe(true);
+        expect(retryAck.revision).toBe(firstAck.revision);
+        expect(retryAck.eventId).toBe(firstAck.eventId);
+        const persisted = await request(`/v1/interview-rooms/${retryRoomId}`, tokens.owner);
+        expect(persisted.body.document).toBe("once");
+        expect(Number(persisted.body.document_revision)).toBe(1);
+      } finally {
+        second.socket.close();
+      }
+    } finally {
+      first.socket.close();
+    }
+  }, 20_000);
+
   it("converges simultaneous WebSocket edits from two authenticated participants", async () => {
     // Use a fresh room: legacy document.update writes are not part of
     // the operation-rebase history and cannot serve as an operation baseline.
