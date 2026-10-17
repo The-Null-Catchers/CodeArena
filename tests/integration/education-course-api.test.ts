@@ -99,11 +99,28 @@ describe("education course API authorization", () => {
     await db.query("UPDATE education_courses SET status='published' WHERE id=$1", [courseId]);
     const learnerNotEnrolled = await request(path, tokens.learner);
     expect(learnerNotEnrolled.body.items).toEqual([]);
-    await db.query(
-      "INSERT INTO education_enrollments(course_id,user_id) VALUES($1,$2)",
-      [courseId, ids.learner],
-    );
+    const enrollPath = `/v1/education/courses/${courseId}/enrollments`;
+    const deniedEnroll = await request(enrollPath, tokens.learner, "POST", { userId: ids.learner });
+    expect(deniedEnroll.status).toBe(403);
+    const invalidMember = await request(enrollPath, tokens.owner, "POST", { userId: ids.outsider });
+    expect(invalidMember.status).toBe(400);
+    const enrolled = await request(enrollPath, tokens.owner, "POST", { userId: ids.learner });
+    expect(enrolled.status).toBe(201);
+    const duplicate = await request(enrollPath, tokens.owner, "POST", { userId: ids.learner });
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.enrolled).toBe(false);
     const learnerEnrolled = await request(path, tokens.learner);
     expect(learnerEnrolled.body.items.map((c: { id: string }) => c.id)).toContain(courseId);
+    const deniedRemoval = await request(
+      `${enrollPath}/${ids.learner}`, tokens.learner, "DELETE",
+    );
+    expect(deniedRemoval.status).toBe(403);
+    const removed = await request(
+      `${enrollPath}/${ids.learner}`, tokens.owner, "DELETE",
+    );
+    expect(removed.status).toBe(200);
+    expect(removed.body.removed).toBe(true);
+    const learnerAfterRemoval = await request(path, tokens.learner);
+    expect(learnerAfterRemoval.body.items).toEqual([]);
   }, 20_000);
 });
