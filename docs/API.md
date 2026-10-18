@@ -13,7 +13,7 @@ Assignments, grading, attempt consumption and education UI are not yet exposed b
 
 `POST /v1/education/assignments/:assignmentId/attempts` requires an authenticated enrolled learner and an empty JSON body (`{}`). The assignment and parent course must both be published, and the assignment deadline must not have passed. The database transaction locks the assignment row while counting and reserving a numbered attempt; over-limit and late requests return HTTP 409, and non-enrolled users cannot reserve attempts. Each successful response contains the new attempt ID, assignment ID, user ID, attempt number and submission timestamp.
 
-This is **attempt admission only**. A reserved attempt is not yet linked to executed source code or a grader verdict; therefore this endpoint must not be presented as automatic grading or a completed solution-submission workflow. Linking trusted execution results, grading, instructor overrides and exports remains future work.
+`GET /v1/education/assignments/:assignmentId/attempts` returns the authenticated enrolled learner's own numbered history. Owners/admins can request another learner's history using `?userId=<uuid>`; unauthorized cross-user access is forbidden. The response contains metadata, not source code or grades.\n\nThis is **attempt admission only**. A reserved attempt is not yet linked to executed source code or a grader verdict; therefore this endpoint must not be presented as automatic grading or a completed solution-submission workflow. Linking trusted execution results, grading, instructor overrides and exports remains future work.
 
 ### Education assignments
 
