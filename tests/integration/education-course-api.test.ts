@@ -211,6 +211,14 @@ describe("education course API authorization", () => {
     expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(409);
     await db.query("UPDATE education_assignments SET max_attempts=3,due_at=now()-interval '1 minute' WHERE id=$1", [assignmentId]);
     expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(409);
+    const linkPath = `/v1/education/attempts/${attempts[0].body.id}/submission`;
+    const invalidLink = await request(linkPath, tokens.learner, "PUT", {
+      submissionId: crypto.randomUUID(),
+    });
+    expect(invalidLink.status).toBe(409);
+    expect((await request(linkPath, tokens.outsider, "PUT", {
+      submissionId: crypto.randomUUID(),
+    })).status).toBe(403);
     const ownHistory = await request(endpoint, tokens.learner);
     expect(ownHistory.status).toBe(200);
     expect(ownHistory.body.items.map((x: { attempt_number: number }) => x.attempt_number)).toEqual([1, 2]);
