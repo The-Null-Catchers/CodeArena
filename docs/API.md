@@ -9,6 +9,12 @@ Enrollment management endpoints (project owner/admin session only): `POST /v1/ed
 
 Assignments, grading, attempt consumption and education UI are not yet exposed by this API.
 
+### Education attempt reservations
+
+`POST /v1/education/assignments/:assignmentId/attempts` requires an authenticated enrolled learner and an empty JSON body (`{}`). The assignment and parent course must both be published, and the assignment deadline must not have passed. The database transaction locks the assignment row while counting and reserving a numbered attempt; over-limit and late requests return HTTP 409, and non-enrolled users cannot reserve attempts. Each successful response contains the new attempt ID, assignment ID, user ID, attempt number and submission timestamp.
+
+This is **attempt admission only**. A reserved attempt is not yet linked to executed source code or a grader verdict; therefore this endpoint must not be presented as automatic grading or a completed solution-submission workflow. Linking trusted execution results, grading, instructor overrides and exports remains future work.
+
 ### Education assignments
 
 - `POST /v1/education/courses/:courseId/assignments` creates a draft assignment (owner/admin session required). Input: `title`, optional `instructions`, `dueAt` (ISO timestamp with offset or null), and `maxAttempts` (1–100).
