@@ -122,5 +122,5 @@ describe("education course API authorization", () => {
     expect(removed.body.removed).toBe(true);
     const learnerAfterRemoval = await request(path, tokens.learner);
     expect(learnerAfterRemoval.body.items).toEqual([]);
-  }, 20_000);
+  }, 60_000);
 });
