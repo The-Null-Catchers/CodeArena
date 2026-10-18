@@ -1,6 +1,7 @@
 import { registerEmail } from "./email.js";
 import { registerEducationCourses } from "./education-courses.js";
 import { registerEducationAssignments } from "./education-assignments.js";
+import { registerEducationAttempts } from "./education-attempts.js";
 import { encryptSecret, allowedUrl } from "../../delivery-worker/src/webhooks.js";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
@@ -64,6 +65,7 @@ await registerAuth(app);
 registerEmail(app);
 registerEducationCourses(app);
 registerEducationAssignments(app);
+registerEducationAttempts(app);
 const registry = new Registry();
 collectDefaultMetrics({ register: registry });
 const requests = new Counter({

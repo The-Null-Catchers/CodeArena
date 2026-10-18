@@ -179,4 +179,43 @@ describe("education course API authorization", () => {
     expect(reopen.status).toBe(409);
   }, 60_000);
 
+  it("enforces assignment attempt limits and deadlines", async () => {
+    const course = await request("/v1/education/courses", tokens.owner, "POST", {
+      projectId, title: "Attempt admission course",
+    });
+    expect(course.status).toBe(201);
+    const courseId = String(course.body.id);
+    await db.query("UPDATE education_courses SET status='published' WHERE id=$1", [courseId]);
+    const assignment = await request(`/v1/education/courses/${courseId}/assignments`, tokens.owner, "POST", {
+      title: "Attempt-limited task", maxAttempts: 2,
+    });
+    expect(assignment.status).toBe(201);
+    const assignmentId = String(assignment.body.id);
+    const endpoint = `/v1/education/assignments/${assignmentId}/attempts`;
+    expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(403);
+    expect((await request(endpoint, tokens.outsider, "POST", {})).status).toBe(403);
+    expect((await request(
+      `/v1/education/courses/${courseId}/enrollments`, tokens.owner, "POST", {userId: ids.learner},
+    )).status).toBe(201);
+    expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(403);
+    expect((await request(
+      `/v1/education/courses/${courseId}/assignments/${assignmentId}/status`,
+      tokens.owner, "PATCH", {status: "published"},
+    )).status).toBe(200);
+    const attempts = await Promise.all([
+      request(endpoint, tokens.learner, "POST", {}),
+      request(endpoint, tokens.learner, "POST", {}),
+    ]);
+    expect(attempts.map(x => x.status)).toEqual([201, 201]);
+    expect(attempts.map(x => x.body.attempt_number).sort()).toEqual([1, 2]);
+    expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(409);
+    await db.query("UPDATE education_assignments SET max_attempts=3,due_at=now()-interval '1 minute' WHERE id=$1", [assignmentId]);
+    expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(409);
+    const count = await db.query(
+      "SELECT count(*) AS n FROM education_assignment_attempts WHERE assignment_id=$1 AND user_id=$2",
+      [assignmentId, ids.learner],
+    );
+    expect(Number(count.rows[0].n)).toBe(2);
+  }, 60_000);
+
 });
