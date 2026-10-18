@@ -8,6 +8,48 @@ const reject = (message: string, statusCode: number) =>
   Object.assign(new Error(message), { statusCode });
 
 export function registerEducationAttempts(app: FastifyInstance) {
+  app.put("/v1/education/attempts/:attemptId/submission", async (req) => {
+    const { attemptId } = z.object({ attemptId: uuid }).parse(req.params);
+    const { submissionId } = z.object({ submissionId: uuid }).strict().parse(req.body);
+    const user = await actor(req);
+    if (!user.userId) throw reject("User session required", 403);
+    return tx(async (client) => {
+      const attempt = (await client.query(
+        `SELECT at.id,at.user_id,at.submission_id,at.submitted_at,a.challenge_id,c.project_id
+         FROM education_assignment_attempts at
+         JOIN education_assignments a ON a.id=at.assignment_id
+         JOIN education_courses c ON c.id=a.course_id
+         WHERE at.id=$1 FOR UPDATE OF at`,
+        [attemptId],
+      )).rows[0];
+      if (!attempt) throw reject("Attempt not found", 404);
+      if (attempt.user_id !== user.userId) throw reject("Forbidden", 403);
+      await authorize(user, attempt.project_id, "submissions:create");
+      if (!attempt.challenge_id)
+        throw reject("Assignment has no linked challenge", 409);
+      if (attempt.submission_id) {
+        if (attempt.submission_id !== submissionId)
+          throw reject("Attempt already linked", 409);
+        return { attemptId, submissionId, linked: false };
+      }
+      const submission = (await client.query(
+        `SELECT id FROM submissions
+          WHERE id=$1 AND user_id=$2 AND project_id=$3
+            AND mode='challenge' AND challenge_id=$4
+            AND created_at>= $5`,
+        [submissionId, user.userId, attempt.project_id, attempt.challenge_id, attempt.submitted_at],
+      )).rows[0];
+      if (!submission) throw reject("Eligible submission not found", 404);
+      const result = await client.query(
+        "UPDATE education_assignment_attempts SET submission_id=$2 WHERE id=$1 RETURNING id",
+        [attemptId, submissionId],
+      );
+      if (!result.rowCount) throw reject("Attempt not found", 404);
+      await audit(client, "education.attempt.submission.link", user.userId!, attemptId, { submissionId });
+      return { attemptId, submissionId, linked: true };
+    });
+  });
+
   app.get("/v1/education/assignments/:assignmentId/attempts", async (req) => {
     const { assignmentId } = z.object({ assignmentId: uuid }).parse(req.params);
     const query = z.object({ userId: uuid.optional() }).strict().parse(req.query);
@@ -38,7 +80,7 @@ export function registerEducationAttempts(app: FastifyInstance) {
       }
     }
     const result = await pool.query(
-      `SELECT id,assignment_id,user_id,attempt_number,submitted_at
+      `SELECT id,assignment_id,user_id,attempt_number,submitted_at,submission_id
          FROM education_assignment_attempts WHERE assignment_id=$1 AND user_id=$2
          ORDER BY attempt_number ASC LIMIT 100`, [assignmentId, targetUser],
     );
