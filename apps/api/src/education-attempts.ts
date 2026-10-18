@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { tx, audit } from "../../../packages/db/src/index.js";
+import { pool, tx, audit } from "../../../packages/db/src/index.js";
 import { actor, authorize } from "./auth.js";
 
 const uuid = z.string().uuid();
@@ -8,6 +8,43 @@ const reject = (message: string, statusCode: number) =>
   Object.assign(new Error(message), { statusCode });
 
 export function registerEducationAttempts(app: FastifyInstance) {
+  app.get("/v1/education/assignments/:assignmentId/attempts", async (req) => {
+    const { assignmentId } = z.object({ assignmentId: uuid }).parse(req.params);
+    const query = z.object({ userId: uuid.optional() }).strict().parse(req.query);
+    const user = await actor(req);
+    if (!user.userId) throw reject("User session required", 403);
+    const assignment = (await pool.query(
+      `SELECT c.project_id,a.course_id
+         FROM education_assignments a JOIN education_courses c ON c.id=a.course_id
+        WHERE a.id=$1`, [assignmentId],
+    )).rows[0];
+    if (!assignment) throw reject("Assignment not found", 404);
+    await authorize(user, assignment.project_id, "submissions:read");
+    const targetUser = query.userId ?? user.userId;
+    if (targetUser !== user.userId)
+      await authorize(user, assignment.project_id, "submissions:write", true);
+    else {
+      const enrolled = (await pool.query(
+        "SELECT 1 FROM education_enrollments WHERE course_id=$1 AND user_id=$2",
+        [assignment.course_id, user.userId],
+      )).rowCount;
+      if (!enrolled) {
+        const administrator = (await pool.query(
+          `SELECT 1 FROM memberships m JOIN projects p ON p.organization_id=m.organization_id
+            WHERE p.id=$1 AND m.user_id=$2 AND m.role IN ('owner','admin')`,
+          [assignment.project_id, user.userId],
+        )).rowCount;
+        if (!administrator) throw reject("Enrollment required", 403);
+      }
+    }
+    const result = await pool.query(
+      `SELECT id,assignment_id,user_id,attempt_number,submitted_at
+         FROM education_assignment_attempts WHERE assignment_id=$1 AND user_id=$2
+         ORDER BY attempt_number ASC LIMIT 100`, [assignmentId, targetUser],
+    );
+    return { items: result.rows };
+  });
+
   app.post("/v1/education/assignments/:assignmentId/attempts", async (req, reply) => {
     const { assignmentId } = z.object({ assignmentId: uuid }).parse(req.params);
     z.object({}).strict().parse(req.body ?? {});
