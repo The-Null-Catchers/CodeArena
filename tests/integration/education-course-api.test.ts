@@ -123,4 +123,60 @@ describe("education course API authorization", () => {
     const learnerAfterRemoval = await request(path, tokens.learner);
     expect(learnerAfterRemoval.body.items).toEqual([]);
   }, 60_000);
+  it("enforces draft assignment visibility, enrolled access, publication and archive rules", async () => {
+    const created = await request("/v1/education/courses", tokens.owner, "POST", {
+      projectId, title: "Assignment security course",
+    });
+    expect(created.status).toBe(201);
+    const courseId = String(created.body.id);
+    const assignments = `/v1/education/courses/${courseId}/assignments`;
+    const deniedCreate = await request(assignments, tokens.learner, "POST", {
+      title: "Unauthorized assignment",
+    });
+    expect(deniedCreate.status).toBe(403);
+    const draft = await request(assignments, tokens.owner, "POST", {
+      title: "Array exercises", instructions: "Solve each problem", maxAttempts: 2,
+    });
+    expect(draft.status).toBe(201);
+    expect(draft.body.status).toBe("draft");
+    expect(draft.body.max_attempts).toBe(2);
+    const assignmentId = String(draft.body.id);
+    const statusPath = `${assignments}/${assignmentId}/status`;
+    const outsider = await request(assignments, tokens.outsider);
+    expect(outsider.status).toBe(403);
+    const unenrolled = await request(assignments, tokens.learner);
+    expect(unenrolled.status).toBe(403);
+    await db.query("UPDATE education_courses SET status='published' WHERE id=$1", [courseId]);
+    const enrollment = await request(
+      `/v1/education/courses/${courseId}/enrollments`,
+      tokens.owner, "POST", { userId: ids.learner },
+    );
+    expect(enrollment.status).toBe(201);
+    const learnerDraft = await request(assignments, tokens.learner);
+    expect(learnerDraft.status).toBe(200);
+    expect(learnerDraft.body.items).toEqual([]);
+    const deniedPublish = await request(statusPath, tokens.learner, "PATCH", {
+      status: "published",
+    });
+    expect(deniedPublish.status).toBe(403);
+    const published = await request(statusPath, tokens.owner, "PATCH", {
+      status: "published",
+    });
+    expect(published.status).toBe(200);
+    expect(published.body.status).toBe("published");
+    const learnerPublished = await request(assignments, tokens.learner);
+    expect(learnerPublished.status).toBe(200);
+    expect(learnerPublished.body.items.map((x: { id: string }) => x.id)).toContain(assignmentId);
+    const archived = await request(statusPath, tokens.owner, "PATCH", {
+      status: "archived",
+    });
+    expect(archived.status).toBe(200);
+    const learnerArchived = await request(assignments, tokens.learner);
+    expect(learnerArchived.body.items).toEqual([]);
+    const reopen = await request(statusPath, tokens.owner, "PATCH", {
+      status: "published",
+    });
+    expect(reopen.status).toBe(409);
+  }, 60_000);
+
 });
