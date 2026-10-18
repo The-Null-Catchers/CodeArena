@@ -211,6 +211,14 @@ describe("education course API authorization", () => {
     expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(409);
     await db.query("UPDATE education_assignments SET max_attempts=3,due_at=now()-interval '1 minute' WHERE id=$1", [assignmentId]);
     expect((await request(endpoint, tokens.learner, "POST", {})).status).toBe(409);
+    const ownHistory = await request(endpoint, tokens.learner);
+    expect(ownHistory.status).toBe(200);
+    expect(ownHistory.body.items.map((x: { attempt_number: number }) => x.attempt_number)).toEqual([1, 2]);
+    const ownerHistory = await request(`${endpoint}?userId=${ids.learner}`, tokens.owner);
+    expect(ownerHistory.status).toBe(200);
+    expect(ownerHistory.body.items).toHaveLength(2);
+    expect((await request(`${endpoint}?userId=${ids.owner}`, tokens.learner)).status).toBe(403);
+    expect((await request(endpoint, tokens.outsider)).status).toBe(403);
     const count = await db.query(
       "SELECT count(*) AS n FROM education_assignment_attempts WHERE assignment_id=$1 AND user_id=$2",
       [assignmentId, ids.learner],
