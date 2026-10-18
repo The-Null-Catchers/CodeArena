@@ -24,7 +24,7 @@ export function registerEducationAttempts(app: FastifyInstance) {
       )).rows[0];
       if (!attempt) throw reject("Attempt not found", 404);
       if (attempt.user_id !== user.userId) throw reject("Forbidden", 403);
-      await authorize(user, attempt.project_id, "submissions:create");
+      await authorize(user, attempt.project_id, "submissions:read");
       if (!attempt.challenge_id)
         throw reject("Assignment has no linked challenge", 409);
       if (attempt.submission_id) {
