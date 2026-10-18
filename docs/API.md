@@ -9,6 +9,14 @@ Enrollment management endpoints (project owner/admin session only): `POST /v1/ed
 
 Assignments, grading, attempt consumption and education UI are not yet exposed by this API.
 
+### Education assignments
+
+- `POST /v1/education/courses/:courseId/assignments` creates a draft assignment (owner/admin session required). Input: `title`, optional `instructions`, `dueAt` (ISO timestamp with offset or null), and `maxAttempts` (1–100).
+- `PATCH /v1/education/courses/:courseId/assignments/:assignmentId/status` sets `draft`, `published`, or `archived` with administrator authorization and audit logging. Archived assignments cannot reopen.
+- `GET /v1/education/courses/:courseId/assignments` lists assignments. Owners/admins see all statuses; enrolled learners see only published assignments on published courses. Non-enrolled users are forbidden.
+
+Creating an assignment does not yet consume execution attempts or calculate grades. Challenge associations, due-date enforcement, graded submissions, overrides and export require separate implementation.
+
 ## Authentication and sessions
 
 Use `Authorization: Bearer <access-token-or-api-key>`. Registration/login return a 15-minute access JWT and a 30-day refresh secret. Refresh rotates the database session and rejects old token reuse. Logout revokes all sessions for that user. The web client currently requires another login when its access token expires; automatic refresh is a planned improvement.
