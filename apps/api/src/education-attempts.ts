@@ -80,9 +80,15 @@ export function registerEducationAttempts(app: FastifyInstance) {
       }
     }
     const result = await pool.query(
-      `SELECT id,assignment_id,user_id,attempt_number,submitted_at,submission_id
-         FROM education_assignment_attempts WHERE assignment_id=$1 AND user_id=$2
-         ORDER BY attempt_number ASC LIMIT 100`, [assignmentId, targetUser],
+      `SELECT at.id,at.assignment_id,at.user_id,at.attempt_number,at.submitted_at,
+                at.submission_id,s.state AS execution_state,
+                CASE WHEN s.state='completed' THEN r.verdict END AS verdict,
+                CASE WHEN s.state='completed' THEN r.score END AS score
+         FROM education_assignment_attempts at
+         LEFT JOIN submissions s ON s.id=at.submission_id
+         LEFT JOIN submission_results r ON r.submission_id=s.id
+         WHERE at.assignment_id=$1 AND at.user_id=$2
+         ORDER BY at.attempt_number ASC LIMIT 100`, [assignmentId, targetUser],
     );
     return { items: result.rows };
   });
