@@ -8,7 +8,7 @@ const csvCell = (value: unknown): string => {
   if (value === null || value === undefined) return "";
   const raw = String(value);
   // Spreadsheet applications may interpret imported cells as formulas.
-  const safe = /^[\\s]*[=+@-]/.test(raw) ? "'" + raw : raw;
+  const safe = /^\s*[=+@-]/.test(raw) ? "'" + raw : raw;
   return '"' + safe.replaceAll('"', '""') + '"';
 };
 
