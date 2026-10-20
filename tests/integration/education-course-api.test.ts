@@ -222,6 +222,7 @@ describe("education course API authorization", () => {
     const ownHistory = await request(endpoint, tokens.learner);
     expect(ownHistory.status).toBe(200);
     expect(ownHistory.body.items.map((x: { attempt_number: number }) => x.attempt_number)).toEqual([1, 2]);
+    expect(ownHistory.body.items.every((x: { execution_state: unknown; verdict: unknown; score: unknown }) => x.execution_state === null && x.verdict === null && x.score === null)).toBe(true);
     const ownerHistory = await request(`${endpoint}?userId=${ids.learner}`, tokens.owner);
     expect(ownerHistory.status).toBe(200);
     expect(ownerHistory.body.items).toHaveLength(2);
