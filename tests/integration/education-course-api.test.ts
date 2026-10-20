@@ -96,7 +96,12 @@ describe("education course API authorization", () => {
     expect(learnerDraft.body.items).toEqual([]);
     const outsider = await request(path, tokens.outsider);
     expect(outsider.status).toBe(403);
-    await db.query("UPDATE education_courses SET status='published' WHERE id=$1", [courseId]);
+    const statusPath = `/v1/education/courses/${courseId}/status`;
+    expect((await request(statusPath, tokens.learner, "PATCH", { status: "published" })).status).toBe(403);
+    expect((await request(statusPath, tokens.outsider, "PATCH", { status: "published" })).status).toBe(403);
+    const publishedCourse = await request(statusPath, tokens.owner, "PATCH", { status: "published" });
+    expect(publishedCourse.status).toBe(200);
+    expect(publishedCourse.body.status).toBe("published");
     const learnerNotEnrolled = await request(path, tokens.learner);
     expect(learnerNotEnrolled.body.items).toEqual([]);
     const enrollPath = `/v1/education/courses/${courseId}/enrollments`;
