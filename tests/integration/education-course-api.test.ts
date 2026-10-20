@@ -244,6 +244,17 @@ describe("education course API authorization", () => {
     expect(csv).toContain("effective_score");
     expect(csv).toContain(attempts[0].body.id);
     expect(csv).toContain(attempts[1].body.id);
+    const summaryPath = `/v1/education/assignments/${assignmentId}/grades`;
+    expect((await request(summaryPath, tokens.learner)).status).toBe(403);
+    expect((await request(summaryPath, tokens.outsider)).status).toBe(403);
+    const summary = await request(summaryPath, tokens.owner);
+    expect(summary.status).toBe(200);
+    expect(summary.body.policy).toBe("best_completed_attempt");
+    const learnerGrade = summary.body.items.find((row: { user_id: string }) => row.user_id === ids.learner);
+    expect(learnerGrade).toBeTruthy();
+    expect(learnerGrade.attempt_count).toBe(2);
+    expect(learnerGrade.completed_count).toBe(0);
+    expect(learnerGrade.best_score).toBeNull();
     const ownHistory = await request(endpoint, tokens.learner);
     expect(ownHistory.status).toBe(200);
     expect(ownHistory.body.items.map((x: { attempt_number: number }) => x.attempt_number)).toEqual([1, 2]);
