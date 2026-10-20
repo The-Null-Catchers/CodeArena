@@ -1,0 +1,169 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "../../../lib/api";
+
+type Project = { id: string; name: string };
+type Course = { id: string; title: string; description: string; status: string };
+type Assignment = { id: string; title: string; status: string; max_attempts: number; due_at: string | null };
+type Grade = { user_id: string; attempt_count: number; completed_count: number; best_score: string | null };
+
+export default function EducationPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState("");
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [courseId, setCourseId] = useState("");
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [selectedAssignment, setSelectedAssignment] = useState("");
+  const [courseTitle, setCourseTitle] = useState("");
+  const [assignmentTitle, setAssignmentTitle] = useState("");
+  const [maxAttempts, setMaxAttempts] = useState(1);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api("/v1/projects").then((result) => {
+      const items: Project[] = result.items || [];
+      setProjects(items);
+      setProjectId(items[0]?.id || "");
+    }).catch((e) => setError((e as Error).message)).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    setCourseId("");
+    setCourses([]);
+    setAssignments([]);
+    setGrades([]);
+    if (!projectId) return;
+    let active = true;
+    setLoading(true);
+    api(`/v1/education/projects/${projectId}/courses`).then((result) => {
+      if (active) setCourses(result.items || []);
+    }).catch((e) => { if (active) setError((e as Error).message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [projectId]);
+
+  useEffect(() => {
+    setAssignments([]);
+    setGrades([]);
+    setSelectedAssignment("");
+    if (!courseId) return;
+    let active = true;
+    api(`/v1/education/courses/${courseId}/assignments`).then((result) => {
+      if (active) setAssignments(result.items || []);
+    }).catch((e) => { if (active) setError((e as Error).message); });
+    return () => { active = false; };
+  }, [courseId]);
+
+  async function createCourse() {
+    if (!projectId || !courseTitle.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const course: Course = await api("/v1/education/courses", {
+        method: "POST", body: JSON.stringify({ projectId, title: courseTitle.trim() }),
+      });
+      setCourses((old) => [course, ...old]);
+      setCourseTitle("");
+      setCourseId(course.id);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function createAssignment() {
+    if (!courseId || !assignmentTitle.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const item: Assignment = await api(`/v1/education/courses/${courseId}/assignments`, {
+        method: "POST", body: JSON.stringify({ title: assignmentTitle.trim(), maxAttempts }),
+      });
+      setAssignments((old) => [item, ...old]);
+      setAssignmentTitle("");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function publish(item: Assignment) {
+    setBusy(true);
+    setError("");
+    try {
+      const changed = await api(`/v1/education/courses/${courseId}/assignments/${item.id}/status`, {
+        method: "PATCH", body: JSON.stringify({ status: "published" }),
+      });
+      setAssignments((old) => old.map((a) => a.id === item.id ? { ...a, status: changed.status } : a));
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function loadGrades(id: string) {
+    setSelectedAssignment(id);
+    setGrades([]);
+    setError("");
+    try {
+      const result = await api(`/v1/education/assignments/${id}/grades`);
+      setGrades(result.items || []);
+    } catch (e) { setError((e as Error).message); }
+  }
+
+  return (
+    <>
+      <div className="page-title"><div><h1>Education</h1>
+        <p>Manage project courses, programming assignments and learner grades.</p>
+      </div><span className="pill">COURSES & ASSIGNMENTS</span></div>
+      {error && <div className="error" role="alert">{error}</div>}
+      <section className="panel" style={{ marginBottom: 16, padding: 16 }}>
+        <label>Project
+          <select aria-label="Education project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            {projects.map((p) => <option value={p.id} key={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        {loading && <p className="muted">Loading education data…</p>}
+        {!loading && !projects.length && <p className="muted">No projects available.</p>}
+      </section>
+      <section className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">COURSES</div>
+        <div className="form-row" style={{ padding: 16, flexWrap: "wrap" }}>
+          <input className="field" aria-label="New course title" maxLength={160}
+            placeholder="New course title" value={courseTitle} onChange={(e) => setCourseTitle(e.target.value)} />
+          <button className="button primary" disabled={busy || !projectId || !courseTitle.trim()} onClick={() => void createCourse()}>Create course</button>
+          <select aria-label="Choose course" value={courseId} onChange={(e) => setCourseId(e.target.value)}>
+            <option value="">Select a course</option>
+            {courses.map((c) => <option key={c.id} value={c.id}>{c.title} ({c.status})</option>)}
+          </select>
+        </div>
+        {!loading && courses.length === 0 && <p className="muted" style={{ padding: 16 }}>No visible courses in this project.</p>}
+      </section>
+      {courseId && <section className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">ASSIGNMENTS</div>
+        <div className="form-row" style={{ padding: 16, flexWrap: "wrap" }}>
+          <input className="field" maxLength={160} aria-label="New assignment title"
+            placeholder="Assignment title" value={assignmentTitle} onChange={(e) => setAssignmentTitle(e.target.value)} />
+          <label>Maximum attempts
+            <input type="number" min={1} max={100} value={maxAttempts}
+              onChange={(e) => setMaxAttempts(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
+          </label>
+          <button className="button primary" disabled={busy || !assignmentTitle.trim()} onClick={() => void createAssignment()}>Create draft</button>
+        </div>
+        {assignments.length === 0 ? <p className="muted" style={{ padding: 16 }}>No visible assignments.</p> :
+          <div className="table-wrap"><table><thead><tr><th>Assignment</th><th>Status</th><th>Attempts</th><th>Actions</th></tr></thead>
+            <tbody>{assignments.map((a) => <tr key={a.id}><td>{a.title}</td><td>{a.status}</td>
+              <td>{a.max_attempts}</td><td>
+                {a.status === "draft" && <button className="button small" disabled={busy} onClick={() => void publish(a)}>Publish</button>}
+                <button className="button small" onClick={() => void loadGrades(a.id)}>View grades</button>
+              </td></tr>)}</tbody></table></div>}
+      </section>}
+      {selectedAssignment && <section className="panel">
+        <div className="panel-head">GRADE SUMMARY · BEST COMPLETED ATTEMPT</div>
+        {grades.length === 0 ? <p className="muted" style={{ padding: 16 }}>No enrolled learners or grade summary available.</p> :
+          <div className="table-wrap"><table><thead><tr><th>Learner ID</th><th>Attempts</th><th>Completed</th><th>Best score</th></tr></thead>
+            <tbody>{grades.map((g) => <tr key={g.user_id}><td className="mono">{g.user_id}</td>
+              <td>{g.attempt_count}</td><td>{g.completed_count}</td><td>{g.best_score ?? "—"}</td>
+            </tr>)}</tbody></table></div>}
+      </section>}
+    </>
+  );
+}
