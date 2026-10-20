@@ -9,11 +9,15 @@ Enrollment management endpoints (project owner/admin session only): `POST /v1/ed
 
 Assignments, grading, attempt consumption and education UI are not yet exposed by this API.
 
+### Assignment grade CSV export
+
+`GET /v1/education/assignments/:assignmentId/grades.csv` requires an authenticated project owner/admin; learners, outsiders and API keys cannot export class grades. The CSV includes at most 10,000 attempts, ordered by learner and attempt number, with IDs, timestamps, execution state, verdict, original engine score, instructor override and effective score. `effective_score` prefers the override only for completed executions; pending/unlinked attempts have empty grades. CSV fields are escaped to reduce spreadsheet formula injection risk. Downloads are private and non-cacheable. This is an attempt-level export, **not** final per-student grade aggregation.
+
 ### Instructor grade overrides
 
 `PUT /v1/education/attempts/:attemptId/grade-override` accepts `{ "score": 85, "reason": "Manual review" }` from a project owner/admin. It requires a linked, completed execution; score is a number between 0 and 100 and a nonblank reason is mandatory. The override is stored separately from the execution's authoritative `score` and `verdict`, and every decision is appended to a revision history and audit log.
 
-`GET /v1/education/attempts/:attemptId/grade-override/history` is owner/admin-only and returns the last 100 recorded decisions. Learner attempt history exposes `override_score` and `override_reason` only for completed execution, alongside the unmodified execution score. Raw engine scores and instructor overrides are distinct values; downstream final-grade selection policy and CSV export are still pending.
+`GET /v1/education/attempts/:attemptId/grade-override/history` is owner/admin-only and returns the last 100 recorded decisions. Learner attempt history exposes `override_score` and `override_reason` only for completed execution, alongside the unmodified execution score. Raw engine scores and instructor overrides are distinct values; final per-student grade aggregation remains pending.
 
 ### Education attempt reservations
 
