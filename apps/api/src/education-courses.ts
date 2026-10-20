@@ -11,6 +11,41 @@ const courseInput = z.object({
 }).strict();
 
 export function registerEducationCourses(app: FastifyInstance) {
+  app.patch("/v1/education/courses/:courseId/status", async (req) => {
+    const courseId = uuid.parse((req.params as { courseId: string }).courseId);
+    const { status } = z.object({
+      status: z.enum(["draft", "published", "archived"]),
+    }).strict().parse(req.body);
+    const user = await actor(req);
+    if (!user.userId)
+      throw Object.assign(new Error("User session required"), { statusCode: 403 });
+    const course = (await pool.query(
+      "SELECT project_id FROM education_courses WHERE id=$1", [courseId],
+    )).rows[0];
+    if (!course)
+      throw Object.assign(new Error("Course not found"), { statusCode: 404 });
+    await authorize(user, course.project_id, "submissions:write", true);
+    return tx(async (client) => {
+      const existing = (await client.query(
+        "SELECT status FROM education_courses WHERE id=$1 FOR UPDATE", [courseId],
+      )).rows[0];
+      if (!existing)
+        throw Object.assign(new Error("Course not found"), { statusCode: 404 });
+      if (existing.status === "archived" && status !== "archived")
+        throw Object.assign(new Error("Archived course cannot be reopened"), { statusCode: 409 });
+      const updated = (await client.query(
+        `UPDATE education_courses SET status=$2,updated_at=now()
+          WHERE id=$1 RETURNING id,project_id,title,description,status,created_at,updated_at`,
+        [courseId, status],
+      )).rows[0];
+      if (existing.status !== status)
+        await audit(client, "education.course.status", user.userId!, courseId, {
+          from: existing.status, to: status,
+        });
+      return updated;
+    });
+  });
+
   app.post("/v1/education/courses", async (req, reply) => {
     const user = await actor(req);
     if (!user.userId)
