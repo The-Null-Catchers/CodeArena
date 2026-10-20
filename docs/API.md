@@ -9,6 +9,10 @@ Enrollment management endpoints (project owner/admin session only): `POST /v1/ed
 
 Assignments, grading, attempt consumption and education UI are not yet exposed by this API.
 
+### Assignment grade summary
+
+`GET /v1/education/assignments/:assignmentId/grades` returns a project owner/admin-only JSON grade summary for up to 10,000 enrolled learners. Each item includes `user_id`, `attempt_count`, `completed_count` and `best_score`. The explicit `best_completed_attempt` policy chooses the highest completed execution score, using an instructor override when present. Learners with no completed scored attempts remain visible with a `null` best score rather than a fabricated zero. The endpoint does not change execution results or grades.
+
 ### Assignment grade CSV export
 
 `GET /v1/education/assignments/:assignmentId/grades.csv` requires an authenticated project owner/admin; learners, outsiders and API keys cannot export class grades. The CSV includes at most 10,000 attempts, ordered by learner and attempt number, with IDs, timestamps, execution state, verdict, original engine score, instructor override and effective score. `effective_score` prefers the override only for completed executions; pending/unlinked attempts have empty grades. CSV fields are escaped to reduce spreadsheet formula injection risk. Downloads are private and non-cacheable. This is an attempt-level export, **not** final per-student grade aggregation.
