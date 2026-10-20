@@ -219,6 +219,17 @@ describe("education course API authorization", () => {
     expect((await request(linkPath, tokens.outsider, "PUT", {
       submissionId: crypto.randomUUID(),
     })).status).toBe(403);
+    const overridePath = `/v1/education/attempts/${attempts[0].body.id}/grade-override`;
+    expect((await request(overridePath, tokens.learner, "PUT", {
+      score: 95, reason: "Unauthorized",
+    })).status).toBe(403);
+    expect((await request(overridePath, tokens.owner, "PUT", {
+      score: 95, reason: "Requires completed execution",
+    })).status).toBe(409);
+    expect((await request(`${overridePath}/history`, tokens.learner)).status).toBe(403);
+    const history = await request(`${overridePath}/history`, tokens.owner);
+    expect(history.status).toBe(200);
+    expect(history.body.items).toEqual([]);
     const ownHistory = await request(endpoint, tokens.learner);
     expect(ownHistory.status).toBe(200);
     expect(ownHistory.body.items.map((x: { attempt_number: number }) => x.attempt_number)).toEqual([1, 2]);

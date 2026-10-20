@@ -8,6 +8,69 @@ const reject = (message: string, statusCode: number) =>
   Object.assign(new Error(message), { statusCode });
 
 export function registerEducationAttempts(app: FastifyInstance) {
+  app.put("/v1/education/attempts/:attemptId/grade-override", async (req) => {
+    const { attemptId } = z.object({ attemptId: uuid }).parse(req.params);
+    const body = z.object({
+      score: z.number().finite().min(0).max(100),
+      reason: z.string().trim().min(1).max(2000),
+    }).strict().parse(req.body);
+    const user = await actor(req);
+    if (!user.userId) throw reject("User session required", 403);
+    return tx(async (client) => {
+      const attempt = (await client.query(
+        `SELECT at.id,c.project_id,s.state,at.submission_id
+           FROM education_assignment_attempts at
+           JOIN education_assignments a ON a.id=at.assignment_id
+           JOIN education_courses c ON c.id=a.course_id
+           LEFT JOIN submissions s ON s.id=at.submission_id
+          WHERE at.id=$1 FOR UPDATE OF at`, [attemptId],
+      )).rows[0];
+      if (!attempt) throw reject("Attempt not found", 404);
+      await authorize(user, attempt.project_id, "submissions:write", true);
+      if (!attempt.submission_id || attempt.state !== "completed")
+        throw reject("Completed execution required", 409);
+      const previous = (await client.query(
+        "SELECT score,reason FROM education_grade_overrides WHERE attempt_id=$1",
+        [attemptId],
+      )).rows[0];
+      await client.query(
+        `INSERT INTO education_grade_overrides(attempt_id,score,reason,updated_by)
+         VALUES($1,$2,$3,$4) ON CONFLICT (attempt_id)
+         DO UPDATE SET score=EXCLUDED.score,reason=EXCLUDED.reason,
+                       updated_by=EXCLUDED.updated_by,updated_at=now()`,
+        [attemptId, body.score, body.reason, user.userId],
+      );
+      await client.query(
+        `INSERT INTO education_grade_override_events(attempt_id,score,reason,actor_id)
+         VALUES($1,$2,$3,$4)`,
+        [attemptId, body.score, body.reason, user.userId],
+      );
+      await audit(client, "education.grade.override", user.userId!, attemptId, {
+        previousScore: previous?.score ?? null, score: body.score,
+        reason: body.reason,
+      });
+      return { attemptId, score: body.score, reason: body.reason };
+    });
+  });
+
+  app.get("/v1/education/attempts/:attemptId/grade-override/history", async (req) => {
+    const { attemptId } = z.object({ attemptId: uuid }).parse(req.params);
+    const user = await actor(req);
+    if (!user.userId) throw reject("User session required", 403);
+    const row = (await pool.query(
+      `SELECT c.project_id FROM education_assignment_attempts at
+         JOIN education_assignments a ON a.id=at.assignment_id
+         JOIN education_courses c ON c.id=a.course_id WHERE at.id=$1`, [attemptId],
+    )).rows[0];
+    if (!row) throw reject("Attempt not found", 404);
+    await authorize(user, row.project_id, "submissions:read", true);
+    const history = await pool.query(
+      `SELECT id,score,reason,actor_id,recorded_at FROM education_grade_override_events
+         WHERE attempt_id=$1 ORDER BY id DESC LIMIT 100`, [attemptId],
+    );
+    return { items: history.rows };
+  });
+
   app.put("/v1/education/attempts/:attemptId/submission", async (req) => {
     const { attemptId } = z.object({ attemptId: uuid }).parse(req.params);
     const { submissionId } = z.object({ submissionId: uuid }).strict().parse(req.body);
@@ -83,10 +146,13 @@ export function registerEducationAttempts(app: FastifyInstance) {
       `SELECT at.id,at.assignment_id,at.user_id,at.attempt_number,at.submitted_at,
                 at.submission_id,s.state AS execution_state,
                 CASE WHEN s.state='completed' THEN r.verdict END AS verdict,
-                CASE WHEN s.state='completed' THEN r.score END AS score
+                CASE WHEN s.state='completed' THEN r.score END AS score,
+                CASE WHEN s.state='completed' THEN go.score END AS override_score,
+                CASE WHEN s.state='completed' THEN go.reason END AS override_reason
          FROM education_assignment_attempts at
          LEFT JOIN submissions s ON s.id=at.submission_id
          LEFT JOIN submission_results r ON r.submission_id=s.id
+         LEFT JOIN education_grade_overrides go ON go.attempt_id=at.id
          WHERE at.assignment_id=$1 AND at.user_id=$2
          ORDER BY at.attempt_number ASC LIMIT 100`, [assignmentId, targetUser],
     );
