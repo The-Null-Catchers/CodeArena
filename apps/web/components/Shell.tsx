@@ -25,6 +25,7 @@ const nav = [
   ["challenges", "Challenges", Code2],
   ["authoring", "Authoring", Code2],
   ["interviews", "Interviews", Radio],
+  ["education", "Education", BookOpen],
   ["submissions", "Submissions", History],
   ["projects", "Projects", Folder],
   ["api-keys", "API keys", Key],
