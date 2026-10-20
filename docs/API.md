@@ -5,9 +5,9 @@
 - `POST /v1/education/courses` accepts `{ "projectId": "<uuid>", "title": "...", "description": "..." }`; requires an authenticated user with owner/admin project authorization. Courses start as drafts.
 - `GET /v1/education/projects/:projectId/courses` returns up to 100 courses. Project owners/admins see all statuses; other authorized project members see only published courses for which they have an enrollment record. Project API keys cannot access these user-specific endpoints.
 
-Enrollment management endpoints (project owner/admin session only): `POST /v1/education/courses/:courseId/enrollments` with `{ "userId": "<uuid>" }` enrolls an existing project member (201 when added, 200 if already enrolled); `DELETE /v1/education/courses/:courseId/enrollments/:userId` removes a learner and returns `{ "removed": boolean }`. Both actions are audited. These operations do not create or alter project memberships.
+Course publication: `PATCH /v1/education/courses/:courseId/status` with `{ "status": "published" }` (or `draft`/`archived`) requires project owner/admin. Every state change is audited, and archived courses cannot be reopened. Published courses become visible to enrolled learners; drafts stay private.\n\nEnrollment management endpoints (project owner/admin session only): `POST /v1/education/courses/:courseId/enrollments` with `{ "userId": "<uuid>" }` enrolls an existing project member (201 when added, 200 if already enrolled); `DELETE /v1/education/courses/:courseId/enrollments/:userId` removes a learner and returns `{ "removed": boolean }`. Both actions are audited. These operations do not create or alter project memberships.
 
-Assignments, grading, attempt consumption and education UI are not yet exposed by this API.
+Assignment creation, attempt reservations, grade summaries and grade CSV export are documented below. The learner code-submission workflow and full education UI remain incomplete.
 
 ### Assignment grade summary
 
