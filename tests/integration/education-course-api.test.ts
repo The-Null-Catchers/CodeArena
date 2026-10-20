@@ -230,6 +230,20 @@ describe("education course API authorization", () => {
     const history = await request(`${overridePath}/history`, tokens.owner);
     expect(history.status).toBe(200);
     expect(history.body.items).toEqual([]);
+    const exportPath = `/v1/education/assignments/${assignmentId}/grades.csv`;
+    const getCsv = (token: string) => limitedFetch(base + exportPath, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect((await getCsv(tokens.learner)).status).toBe(403);
+    expect((await getCsv(tokens.outsider)).status).toBe(403);
+    const exported = await getCsv(tokens.owner);
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-type")).toContain("text/csv");
+    expect(exported.headers.get("cache-control")).toBe("private, no-store");
+    const csv = await exported.text();
+    expect(csv).toContain("effective_score");
+    expect(csv).toContain(attempts[0].body.id);
+    expect(csv).toContain(attempts[1].body.id);
     const ownHistory = await request(endpoint, tokens.learner);
     expect(ownHistory.status).toBe(200);
     expect(ownHistory.body.items.map((x: { attempt_number: number }) => x.attempt_number)).toEqual([1, 2]);
