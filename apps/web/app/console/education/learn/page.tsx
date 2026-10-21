@@ -6,11 +6,17 @@ import { api } from "../../../../lib/api";
 
 type Project = { id: string; name: string };
 type Course = { id: string; title: string; description: string };
-type Assignment = { id: string; title: string; instructions: string; max_attempts: number; due_at: string | null };
+type Assignment = { id: string; title: string; instructions: string; challenge_id: string | null; max_attempts: number; due_at: string | null };
+type Runtime = { id: string; language: string; version: string; enabled: boolean };
 type Attempt = { id: string; attempt_number: number; submitted_at: string; submission_id: string | null; execution_state: string | null; verdict: string | null; score: number | null; override_score: string | null };
 
 export default function LearnerEducationPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [runtimes, setRuntimes] = useState<Runtime[]>([]);
+  const [runtimeId, setRuntimeId] = useState("");
+  const [source, setSource] = useState("");
+  const [submitAttemptId, setSubmitAttemptId] = useState("");
+  const [submittedId, setSubmittedId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseId, setCourseId] = useState("");
@@ -21,6 +27,11 @@ export default function LearnerEducationPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    api("/v1/runtimes").then((data) => {
+      const available: Runtime[] = (data.items || []).filter((r: Runtime) => r.enabled);
+      setRuntimes(available);
+      setRuntimeId(available[0]?.id || "");
+    }).catch((e) => setError((e as Error).message));
     api("/v1/projects").then((data) => {
       const items: Project[] = data.items || [];
       setProjects(items);
@@ -83,6 +94,32 @@ export default function LearnerEducationPage() {
     finally { setBusyId(""); }
   }
 
+  async function submitCode(assignment: Assignment, attempt: Attempt) {
+    if (!assignment.challenge_id || !projectId || !runtimeId || !source.trim() || attempt.submission_id) return;
+    setBusyId(assignment.id);
+    setError("");
+    setSubmittedId("");
+    try {
+      const [language, ...versionParts] = runtimeId.split(":");
+      const submission = await api("/v1/submissions", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId, language, version: versionParts.join(":"), source,
+          stdin: "", mode: "challenge", challengeId: assignment.challenge_id,
+        }),
+      });
+      setSubmittedId(submission.id);
+      await api(`/v1/education/attempts/${attempt.id}/submission`, {
+        method: "PUT", body: JSON.stringify({ submissionId: submission.id }),
+      });
+      await refreshAttempts(assignment.id);
+      setSubmitAttemptId("");
+      setSource("");
+    } catch (e) {
+      setError(`${(e as Error).message}. ${"If execution was admitted, retain the submission ID and contact your instructor for assistance."}`);
+    } finally { setBusyId(""); }
+  }
+
   return (
     <>
       <div className="page-title"><div>
@@ -91,6 +128,7 @@ export default function LearnerEducationPage() {
       </div><span className="pill">LEARNER WORKSPACE</span></div>
       <p className="muted">Attempt reservation is available here. Code submission and grading run through the execution workflow separately.</p>
       {error && <div className="error" role="alert">{error}</div>}
+      {submittedId && <p role="status">Execution admitted: <Link href={`/console/submissions/${submittedId}`}>{submittedId}</Link></p>}
       <section className="panel" style={{ padding: 16, marginBottom: 16 }}>
         <div className="form-row" style={{ flexWrap: "wrap" }}>
           <label>Project
@@ -141,6 +179,37 @@ export default function LearnerEducationPage() {
                     <td>{attempt.verdict || "—"}</td>
                     <td>{attempt.override_score ?? attempt.score ?? "—"}</td>
                   </tr>)}</tbody></table></div>}
+              {assignment.challenge_id && history.some((attempt) => !attempt.submission_id) && (
+                <div className="panel" style={{ padding: 16, marginTop: 12 }}>
+                  <h4>Submit code for a reserved attempt</h4>
+                  <label>Unlinked attempt
+                    <select aria-label="Reserved attempt" value={submitAttemptId}
+                      onChange={(e) => setSubmitAttemptId(e.target.value)}>
+                      <option value="">Select an attempt</option>
+                      {history.filter((attempt) => !attempt.submission_id).map((attempt) =>
+                        <option key={attempt.id} value={attempt.id}>Attempt {attempt.attempt_number}</option>)}
+                    </select>
+                  </label>
+                  <label>Runtime
+                    <select aria-label="Execution runtime" value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
+                      {runtimes.map((runtime) =>
+                        <option value={runtime.id} key={runtime.id}>{runtime.language} {runtime.version}</option>)}
+                    </select>
+                  </label>
+                  <label>Solution source code
+                    <textarea className="field" aria-label="Solution source code"
+                      value={source} onChange={(e) => setSource(e.target.value)}
+                      maxLength={65536} spellCheck={false}
+                      style={{ display: "block", width: "100%", minHeight: 180, fontFamily: "monospace" }} />
+                  </label>
+                  <button className="button primary" disabled={Boolean(busyId) || !runtimeId || !source.trim() || !submitAttemptId}
+                    onClick={() => {
+                      const selected = history.find((attempt) => attempt.id === submitAttemptId);
+                      if (selected && window.confirm("Submit this solution for judging?"))
+                        void submitCode(assignment, selected);
+                    }}>Submit for grading</button>
+                </div>
+              )}
             </div>}
           </div>;
         })}
