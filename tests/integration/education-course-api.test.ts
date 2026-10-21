@@ -260,6 +260,12 @@ describe("education course API authorization", () => {
     const csv = await csvResponse.text();
     expect(csv).toContain(submissionId);
     expect(csv).toContain('"93.00"');
+    // Remove fixture submission before the suite's project teardown; these
+    // execution tables deliberately do not cascade from projects.
+    await db.query("DELETE FROM education_courses WHERE id=$1", [courseId]);
+    await db.query("DELETE FROM submission_results WHERE submission_id=$1", [submissionId]);
+    await db.query("DELETE FROM submissions WHERE id=$1", [submissionId]);
+    await db.query("DELETE FROM challenges WHERE id=$1", [challengeId]);
   }, 60_000);
 
   it("enforces assignment attempt limits and deadlines", async () => {
