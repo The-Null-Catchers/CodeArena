@@ -9,6 +9,7 @@ type Course = { id: string; title: string; description: string };
 type Assignment = { id: string; title: string; instructions: string; challenge_id: string | null; max_attempts: number; due_at: string | null };
 type Runtime = { id: string; language: string; version: string; enabled: boolean };
 type Attempt = { id: string; attempt_number: number; submitted_at: string; submission_id: string | null; execution_state: string | null; verdict: string | null; score: number | null; override_score: string | null };
+type PendingLink = { projectId: string; assignmentId: string; attemptId: string; submissionId: string };
 
 export default function LearnerEducationPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -17,6 +18,7 @@ export default function LearnerEducationPage() {
   const [source, setSource] = useState("");
   const [submitAttemptId, setSubmitAttemptId] = useState("");
   const [submittedId, setSubmittedId] = useState("");
+  const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
   const [projectId, setProjectId] = useState("");
   const [courses, setCourses] = useState<Course[]>([]);
   const [courseId, setCourseId] = useState("");
@@ -27,6 +29,13 @@ export default function LearnerEducationPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem("ca_education_pending_link");
+      if (stored) {
+        const value: PendingLink = JSON.parse(stored);
+        if (value.attemptId && value.assignmentId && value.projectId && value.submissionId) setPendingLink(value);
+      }
+    } catch { sessionStorage.removeItem("ca_education_pending_link"); }
     api("/v1/runtimes").then((data) => {
       const available: Runtime[] = (data.items || []).filter((r: Runtime) => r.enabled);
       setRuntimes(available);
@@ -94,8 +103,34 @@ export default function LearnerEducationPage() {
     finally { setBusyId(""); }
   }
 
+  function clearPendingLink() {
+    sessionStorage.removeItem("ca_education_pending_link");
+    setPendingLink(null);
+  }
+
+  async function linkExecution(link: PendingLink) {
+    await api(`/v1/education/attempts/${link.attemptId}/submission`, {
+      method: "PUT", body: JSON.stringify({ submissionId: link.submissionId }),
+    });
+    clearPendingLink();
+    await refreshAttempts(link.assignmentId);
+    setSubmitAttemptId("");
+    setSource("");
+  }
+
+  async function retryLink(link: PendingLink) {
+    if (link.projectId !== projectId) return;
+    setBusyId(link.assignmentId);
+    setError("");
+    try {
+      // Server checks ownership, challenge, assignment and execution eligibility.
+      await linkExecution(link);
+    } catch (e) { setError(`Link retry failed: ${(e as Error).message}`); }
+    finally { setBusyId(""); }
+  }
+
   async function submitCode(assignment: Assignment, attempt: Attempt) {
-    if (!assignment.challenge_id || !projectId || !runtimeId || !source.trim() || attempt.submission_id) return;
+    if (!assignment.challenge_id || !projectId || !runtimeId || !source.trim() || attempt.submission_id || pendingLink) return;
     setBusyId(assignment.id);
     setError("");
     setSubmittedId("");
@@ -108,15 +143,16 @@ export default function LearnerEducationPage() {
           stdin: "", mode: "challenge", challengeId: assignment.challenge_id,
         }),
       });
+      const link: PendingLink = {
+        projectId, assignmentId: assignment.id, attemptId: attempt.id, submissionId: submission.id,
+      };
+      // Persist before linking so network failures or reloads never require re-submission.
+      sessionStorage.setItem("ca_education_pending_link", JSON.stringify(link));
+      setPendingLink(link);
       setSubmittedId(submission.id);
-      await api(`/v1/education/attempts/${attempt.id}/submission`, {
-        method: "PUT", body: JSON.stringify({ submissionId: submission.id }),
-      });
-      await refreshAttempts(assignment.id);
-      setSubmitAttemptId("");
-      setSource("");
+      await linkExecution(link);
     } catch (e) {
-      setError(`${(e as Error).message}. ${"If execution was admitted, retain the submission ID and contact your instructor for assistance."}`);
+      setError(`${(e as Error).message}. If execution was admitted, retry linking the existing submission; do not submit the code again.`);
     } finally { setBusyId(""); }
   }
 
@@ -129,6 +165,13 @@ export default function LearnerEducationPage() {
       <p className="muted">Attempt reservation is available here. Code submission and grading run through the execution workflow separately.</p>
       {error && <div className="error" role="alert">{error}</div>}
       {submittedId && <p role="status">Execution admitted: <Link href={`/console/submissions/${submittedId}`}>{submittedId}</Link></p>}
+      {pendingLink && <section className="panel" style={{ padding: 16, marginBottom: 16 }} role="status">
+        <strong>Execution admitted but assignment link is not confirmed.</strong>
+        <p>Submission: <Link href={`/console/submissions/${pendingLink.submissionId}`}>{pendingLink.submissionId}</Link></p>
+        <p className="muted">Retry the link instead of executing the code again. This recovery is kept for this browser session.</p>
+        <button className="button primary" disabled={Boolean(busyId) || pendingLink.projectId !== projectId}
+          onClick={() => void retryLink(pendingLink)}>Retry linking submission</button>
+      </section>}
       <section className="panel" style={{ padding: 16, marginBottom: 16 }}>
         <div className="form-row" style={{ flexWrap: "wrap" }}>
           <label>Project
@@ -202,7 +245,7 @@ export default function LearnerEducationPage() {
                       maxLength={65536} spellCheck={false}
                       style={{ display: "block", width: "100%", minHeight: 180, fontFamily: "monospace" }} />
                   </label>
-                  <button className="button primary" disabled={Boolean(busyId) || !runtimeId || !source.trim() || !submitAttemptId}
+                  <button className="button primary" disabled={Boolean(busyId) || Boolean(pendingLink) || !runtimeId || !source.trim() || !submitAttemptId}
                     onClick={() => {
                       const selected = history.find((attempt) => attempt.id === submitAttemptId);
                       if (selected && window.confirm("Submit this solution for judging?"))
