@@ -139,6 +139,10 @@ describe("education course API authorization", () => {
       title: "Unauthorized assignment",
     });
     expect(deniedCreate.status).toBe(403);
+    const missingChallenge = await request(assignments, tokens.owner, "POST", {
+      title: "Invalid challenge reference", challengeId: crypto.randomUUID(),
+    });
+    expect(missingChallenge.status).toBe(400);
     const draft = await request(assignments, tokens.owner, "POST", {
       title: "Array exercises", instructions: "Solve each problem", maxAttempts: 2,
     });

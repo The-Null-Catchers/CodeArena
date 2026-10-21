@@ -9,6 +9,7 @@ const assignmentInput = z.object({
   instructions: z.string().max(20000).default(""),
   dueAt: z.string().datetime({ offset: true }).nullable().default(null),
   maxAttempts: z.number().int().min(1).max(100).default(1),
+  challengeId: uuid.nullable().default(null),
 }).strict();
 const notFound = () => Object.assign(new Error("Course not found"), { statusCode: 404 });
 const forbidden = () => Object.assign(new Error("User session required"), { statusCode: 403 });
@@ -28,11 +29,20 @@ export function registerEducationAssignments(app: FastifyInstance) {
     const projectId = await courseProjectId(courseId);
     await authorize(user, projectId, "submissions:write", true);
     const assignment = await tx(async (client) => {
+      if (input.challengeId) {
+        const available = await client.query(
+          `SELECT 1 FROM challenges WHERE id=$1 AND status='published'
+             AND (project_id=$2 OR visibility='public')`,
+          [input.challengeId, projectId],
+        );
+        if (!available.rowCount)
+          throw Object.assign(new Error("Published challenge unavailable for project"), { statusCode: 400 });
+      }
       const result = await client.query(
-        `INSERT INTO education_assignments(course_id,title,instructions,due_at,max_attempts)
-         VALUES($1,$2,$3,$4,$5)
-         RETURNING id,course_id,title,instructions,status,due_at,max_attempts,created_at,updated_at`,
-        [courseId, input.title, input.instructions, input.dueAt, input.maxAttempts],
+        `INSERT INTO education_assignments(course_id,title,instructions,due_at,max_attempts,challenge_id)
+         VALUES($1,$2,$3,$4,$5,$6)
+         RETURNING id,course_id,title,instructions,status,due_at,max_attempts,challenge_id,created_at,updated_at`,
+        [courseId, input.title, input.instructions, input.dueAt, input.maxAttempts, input.challengeId],
       );
       const row = result.rows[0];
       await audit(client, "education.assignment.create", user.userId!, row.id);
@@ -89,7 +99,7 @@ export function registerEducationAssignments(app: FastifyInstance) {
         throw Object.assign(new Error("Course enrollment required"), { statusCode: 403 });
     }
     const result = await pool.query(
-      `SELECT id,course_id,title,instructions,status,due_at,max_attempts,created_at,updated_at
+      `SELECT id,course_id,title,instructions,status,due_at,max_attempts,challenge_id,created_at,updated_at
        FROM education_assignments WHERE course_id=$1 AND ($2::boolean OR status='published')
        ORDER BY created_at DESC,id DESC LIMIT 100`,
       [courseId, admin],

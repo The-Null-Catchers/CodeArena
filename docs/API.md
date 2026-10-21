@@ -23,6 +23,10 @@ Assignment APIs, attempt reservations, grade summaries and exports are documente
 
 `GET /v1/education/attempts/:attemptId/grade-override/history` is owner/admin-only and returns the last 100 recorded decisions. Learner attempt history exposes `override_score` and `override_reason` only for completed execution, alongside the unmodified execution score. Raw engine scores and instructor overrides are distinct values; final per-student grade aggregation remains pending.
 
+### Assignment challenge binding
+
+`POST /v1/education/courses/:courseId/assignments` accepts optional `challengeId` (UUID or null) alongside `title`, `instructions`, `dueAt` and `maxAttempts`. If specified, the challenge must be published and either belong to the same project or have public visibility. Unknown, draft, archived or inaccessible challenges are rejected with HTTP 400. Assignment creation starts in draft, and the returned assignment and list responses expose `challenge_id`. Instructors can supply a published challenge UUID in the Education console. A linked published challenge enables subsequent association of a learner's challenge-mode execution with their reserved assignment attempt; reserving a slot alone does not execute or grade source code.
+
 ### Education attempt reservations
 
 `POST /v1/education/assignments/:assignmentId/attempts` requires an authenticated enrolled learner and an empty JSON body (`{}`). The assignment and parent course must both be published, and the assignment deadline must not have passed. The database transaction locks the assignment row while counting and reserving a numbered attempt; over-limit and late requests return HTTP 409, and non-enrolled users cannot reserve attempts. Each successful response contains the new attempt ID, assignment ID, user ID, attempt number and submission timestamp.

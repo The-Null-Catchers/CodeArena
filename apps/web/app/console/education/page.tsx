@@ -19,6 +19,7 @@ export default function EducationPage() {
   const [courseTitle, setCourseTitle] = useState("");
   const [assignmentTitle, setAssignmentTitle] = useState("");
   const [maxAttempts, setMaxAttempts] = useState(1);
+  const [challengeId, setChallengeId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -92,10 +93,11 @@ export default function EducationPage() {
     setError("");
     try {
       const item: Assignment = await api(`/v1/education/courses/${courseId}/assignments`, {
-        method: "POST", body: JSON.stringify({ title: assignmentTitle.trim(), maxAttempts }),
+        method: "POST", body: JSON.stringify({ title: assignmentTitle.trim(), maxAttempts, challengeId: challengeId.trim() || null }),
       });
       setAssignments((old) => [item, ...old]);
       setAssignmentTitle("");
+      setChallengeId("");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -163,6 +165,7 @@ export default function EducationPage() {
             <input type="number" min={1} max={100} value={maxAttempts}
               onChange={(e) => setMaxAttempts(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
           </label>
+          <input className="field" aria-label="Published challenge UUID" placeholder="Published challenge UUID (optional)" value={challengeId} onChange={(e) => setChallengeId(e.target.value)} />
           <button className="button primary" disabled={busy || !assignmentTitle.trim()} onClick={() => void createAssignment()}>Create draft</button>
         </div>
         {assignments.length === 0 ? <p className="muted" style={{ padding: 16 }}>No visible assignments.</p> :
