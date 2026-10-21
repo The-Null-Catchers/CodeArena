@@ -171,7 +171,7 @@ export default function LearnerEducationPage() {
         <p className="muted">Retry the link instead of executing the code again. This recovery is kept for this browser session.</p>
         <button className="button primary" disabled={Boolean(busyId) || pendingLink.projectId !== projectId}
           onClick={() => void retryLink(pendingLink)}>Retry linking submission</button>
-      </section>
+      </section>}
       <section className="panel" style={{ padding: 16, marginBottom: 16 }}>
         <div className="form-row" style={{ flexWrap: "wrap" }}>
           <label>Project
