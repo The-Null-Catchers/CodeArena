@@ -26,6 +26,7 @@ const nav = [
   ["authoring", "Authoring", Code2],
   ["interviews", "Interviews", Radio],
   ["education", "Education", BookOpen],
+  ["education/learn", "My learning", BookOpen],
   ["submissions", "Submissions", History],
   ["projects", "Projects", Folder],
   ["api-keys", "API keys", Key],
@@ -56,7 +57,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <Link
               key={slug}
               href={`/console/${slug}`}
-              className={path.includes(slug) ? "active" : ""}
+              className={path === `/console/${slug}` || (slug !== "education" && path.startsWith(`/console/${slug}/`)) ? "active" : ""}
             >
               <Icon />
               {label}
