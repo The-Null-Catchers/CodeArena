@@ -73,6 +73,19 @@ export default function EducationPage() {
     finally { setBusy(false); }
   }
 
+  async function updateCourseStatus(status: "published" | "archived") {
+    if (!courseId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result: Course = await api(`/v1/education/courses/${courseId}/status`, {
+        method: "PATCH", body: JSON.stringify({ status }),
+      });
+      setCourses((old) => old.map((item) => item.id === courseId ? { ...item, status: result.status } : item));
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function createAssignment() {
     if (!courseId || !assignmentTitle.trim()) return;
     setBusy(true);
@@ -135,6 +148,10 @@ export default function EducationPage() {
             {courses.map((c) => <option key={c.id} value={c.id}>{c.title} ({c.status})</option>)}
           </select>
         </div>
+        {courseId && courses.find((c) => c.id === courseId)?.status !== "archived" && <div className="form-row" style={{ padding: 16 }}>
+          {courses.find((c) => c.id === courseId)?.status === "draft" && <button className="button primary" disabled={busy} onClick={() => void updateCourseStatus("published")}>Publish course</button>}
+          <button className="button danger" disabled={busy} onClick={() => { if (window.confirm("Archive this course permanently?")) void updateCourseStatus("archived"); }}>Archive course</button>
+        </div>}
         {!loading && courses.length === 0 && <p className="muted" style={{ padding: 16 }}>No visible courses in this project.</p>}
       </section>
       {courseId && <section className="panel" style={{ marginBottom: 16 }}>
