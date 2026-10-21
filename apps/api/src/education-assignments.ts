@@ -32,7 +32,7 @@ export function registerEducationAssignments(app: FastifyInstance) {
       if (input.challengeId) {
         const available = await client.query(
           `SELECT 1 FROM challenges WHERE id=$1 AND status='published'
-             AND (project_id=$2 OR (visibility='public' AND project_id IS NULL))`,
+             AND (project_id=$2 OR visibility='public')`,
           [input.challengeId, projectId],
         );
         if (!available.rowCount)
