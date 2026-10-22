@@ -69,6 +69,22 @@ afterAll(async () => {
   const users = Object.values(ids);
   await db.query("DELETE FROM audit_logs WHERE user_id=ANY($1::uuid[])", [users]);
   await db.query("DELETE FROM sessions WHERE user_id=ANY($1::uuid[])", [users]);
+  // Also clean fixtures when an assertion fails before the test's normal teardown.
+  if (projectId) {
+    await db.query("DELETE FROM education_courses WHERE project_id=$1", [projectId]);
+    const fixtureIds = (await db.query(
+      "SELECT id FROM challenges WHERE project_id=$1 AND slug LIKE 'education-integration-%'",
+      [projectId],
+    )).rows.map((row: { id: string }) => row.id);
+    if (fixtureIds.length) {
+      await db.query(
+        "DELETE FROM submission_results WHERE submission_id IN (SELECT id FROM submissions WHERE challenge_id=ANY($1::uuid[]))",
+        [fixtureIds],
+      );
+      await db.query("DELETE FROM submissions WHERE challenge_id=ANY($1::uuid[])", [fixtureIds]);
+      await db.query("DELETE FROM challenges WHERE id=ANY($1::uuid[])", [fixtureIds]);
+    }
+  }
   if (projectId) await db.query("DELETE FROM projects WHERE id=$1", [projectId]);
   if (orgId) await db.query("DELETE FROM organizations WHERE id=$1", [orgId]);
   await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [users]);
@@ -186,6 +202,90 @@ describe("education course API authorization", () => {
       status: "published",
     });
     expect(reopen.status).toBe(409);
+  }, 60_000);
+
+  it("links a scored challenge submission to an attempt and reflects instructor overrides", async () => {
+    const course = await request("/v1/education/courses", tokens.owner, "POST", {
+      projectId, title: "Scored linked submission course",
+    });
+    expect(course.status).toBe(201);
+    const courseId = String(course.body.id);
+    const courseStatus = await request(`/v1/education/courses/${courseId}/status`, tokens.owner,
+      "PATCH", { status: "published" });
+    expect(courseStatus.status).toBe(200);
+    const challengeId = (await db.query(
+      `INSERT INTO challenges(project_id,slug,title,description,difficulty,visibility,status)
+        VALUES($1,$2,'Education integration challenge','Fixture','easy','private','published') RETURNING id`,
+      [projectId, `education-integration-${crypto.randomUUID()}`],
+    )).rows[0].id as string;
+    const assignments = `/v1/education/courses/${courseId}/assignments`;
+    const created = await request(assignments, tokens.owner, "POST", {
+      title: "Scored exercise", challengeId,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.challenge_id).toBe(challengeId);
+    const assignmentId = String(created.body.id);
+    expect((await request(`${assignments}/${assignmentId}/status`, tokens.owner,
+      "PATCH", { status: "published" })).status).toBe(200);
+    expect((await request(`/v1/education/courses/${courseId}/enrollments`,
+      tokens.owner, "POST", { userId: ids.learner })).status).toBe(201);
+    const attemptsPath = `/v1/education/assignments/${assignmentId}/attempts`;
+    const reserved = await request(attemptsPath, tokens.learner, "POST", {});
+    expect(reserved.status).toBe(201);
+    const attemptId = String(reserved.body.id);
+    const runtime = (await db.query("SELECT id FROM runtimes LIMIT 1")).rows[0]?.id as string | undefined;
+    expect(runtime).toBeTruthy();
+    // Database fixture represents an already completed engine execution. This
+    // tests grade projection and access control, not execution worker behavior.
+    const submissionId = (await db.query(
+      `INSERT INTO submissions(project_id,user_id,runtime_id,challenge_id,source,stdin,mode,limits,state)
+        VALUES($1,$2,$3,$4,'print(42)','','challenge','{}'::jsonb,'completed') RETURNING id`,
+      [projectId, ids.learner, runtime, challengeId],
+    )).rows[0].id as string;
+    await db.query(
+      `INSERT INTO submission_results(submission_id,verdict,stdout,stderr,wall_ms,cpu_ms,peak_memory_bytes,score)
+       VALUES($1,'accepted','','',12,11,1024,80)`, [submissionId],
+    );
+    // An AFTER INSERT trigger recalculates score from test snapshots (none in this
+    // synthetic completed-submission fixture). Set the completed result's score
+    // explicitly after insertion so the projection layer sees the seeded 80.
+    await db.query("UPDATE submission_results SET score=80 WHERE submission_id=$1", [submissionId]);
+    const linkPath = `/v1/education/attempts/${attemptId}/submission`;
+    const link = await request(linkPath, tokens.learner, "PUT", { submissionId });
+    expect(link.status).toBe(200);
+    expect(link.body.linked).toBe(true);
+    const retry = await request(linkPath, tokens.learner, "PUT", { submissionId });
+    expect(retry.status).toBe(200);
+    expect(retry.body.linked).toBe(false);
+    expect((await request(linkPath, tokens.owner, "PUT", { submissionId })).status).toBe(403);
+    const own = await request(attemptsPath, tokens.learner);
+    expect(own.status).toBe(200);
+    expect(own.body.items[0].execution_state).toBe("completed");
+    expect(own.body.items[0].verdict).toBe("accepted");
+    expect(own.body.items[0].score).toBe(80);
+    const override = await request(`/v1/education/attempts/${attemptId}/grade-override`,
+      tokens.owner, "PUT", { score: 93, reason: "Instructor review" });
+    expect(override.status).toBe(200);
+    const after = await request(attemptsPath, tokens.learner);
+    expect(Number(after.body.items[0].override_score)).toBe(93);
+    const grades = await request(`/v1/education/assignments/${assignmentId}/grades`, tokens.owner);
+    expect(grades.status).toBe(200);
+    const learner = grades.body.items.find((item: { user_id: string }) => item.user_id === ids.learner);
+    expect(Number(learner.best_score)).toBe(93);
+    expect(learner.completed_count).toBe(1);
+    const csvResponse = await limitedFetch(base + `/v1/education/assignments/${assignmentId}/grades.csv`, {
+      headers: { Authorization: `Bearer ${tokens.owner}` },
+    });
+    expect(csvResponse.status).toBe(200);
+    const csv = await csvResponse.text();
+    expect(csv).toContain(submissionId);
+    expect(csv).toContain('"93.00"');
+    // Remove fixture submission before the suite's project teardown; these
+    // execution tables deliberately do not cascade from projects.
+    await db.query("DELETE FROM education_courses WHERE id=$1", [courseId]);
+    await db.query("DELETE FROM submission_results WHERE submission_id=$1", [submissionId]);
+    await db.query("DELETE FROM submissions WHERE id=$1", [submissionId]);
+    await db.query("DELETE FROM challenges WHERE id=$1", [challengeId]);
   }, 60_000);
 
   it("enforces assignment attempt limits and deadlines", async () => {
