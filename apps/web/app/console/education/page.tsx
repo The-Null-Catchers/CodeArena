@@ -17,6 +17,8 @@ export default function EducationPage() {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState("");
   const [courseTitle, setCourseTitle] = useState("");
+  const [enrollmentUserId, setEnrollmentUserId] = useState("");
+  const [enrollmentNotice, setEnrollmentNotice] = useState("");
   const [assignmentTitle, setAssignmentTitle] = useState("");
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [challengeId, setChallengeId] = useState("");
@@ -34,6 +36,8 @@ export default function EducationPage() {
 
   useEffect(() => {
     setCourseId("");
+    setEnrollmentNotice("");
+    setEnrollmentUserId("");
     setCourses([]);
     setAssignments([]);
     setGrades([]);
@@ -83,6 +87,21 @@ export default function EducationPage() {
         method: "PATCH", body: JSON.stringify({ status }),
       });
       setCourses((old) => old.map((item) => item.id === courseId ? { ...item, status: result.status } : item));
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function enrollLearner() {
+    if (!courseId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(enrollmentUserId.trim())) return;
+    setBusy(true);
+    setError("");
+    setEnrollmentNotice("");
+    try {
+      const result: { enrolled: boolean } = await api(`/v1/education/courses/${courseId}/enrollments`, {
+        method: "POST", body: JSON.stringify({ userId: enrollmentUserId.trim() }),
+      });
+      setEnrollmentNotice(result.enrolled ? "Learner enrolled successfully." : "Learner is already enrolled.");
+      setEnrollmentUserId("");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -186,6 +205,22 @@ export default function EducationPage() {
         </div>}
         {!loading && courses.length === 0 && <p className="muted" style={{ padding: 16 }}>No visible courses in this project.</p>}
       </section>
+      {courseId && <section className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">ENROLL LEARNER</div>
+        <div className="form-row" style={{ padding: 16, flexWrap: "wrap" }}>
+          <label style={{ flex: 1, minWidth: 260 }}>Project member user ID
+            <input className="field" aria-label="Learner user UUID" placeholder="Learner UUID"
+              value={enrollmentUserId} onChange={(e) => setEnrollmentUserId(e.target.value)}
+              maxLength={36} />
+          </label>
+          <button className="button" onClick={() => void enrollLearner()}
+            disabled={busy || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(enrollmentUserId.trim())}>
+            Enroll learner
+          </button>
+        </div>
+        <p className="muted" style={{ padding: "0 16px 12px" }}>Only existing members of this project can be enrolled. Owner/admin permissions are enforced by the API.</p>
+        {enrollmentNotice && <p role="status" style={{ padding: "0 16px 12px" }}>{enrollmentNotice}</p>}
+      </section>}
       {courseId && <section className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head">ASSIGNMENTS</div>
         <div className="form-row" style={{ padding: 16, flexWrap: "wrap" }}>
