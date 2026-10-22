@@ -15,6 +15,8 @@ Assignment APIs, attempt reservations, grade summaries and exports are documente
 
 ### Assignment grade CSV export
 
+The Education console includes a **Download grades CSV** button after selecting an assignment. The browser sends the user's bearer token to the existing protected CSV endpoint and downloads its response as a local file. Unauthorized errors remain visible rather than silently generating an empty file.
+
 `GET /v1/education/assignments/:assignmentId/grades.csv` requires an authenticated project owner/admin; learners, outsiders and API keys cannot export class grades. The CSV includes at most 10,000 attempts, ordered by learner and attempt number, with IDs, timestamps, execution state, verdict, original engine score, instructor override and effective score. `effective_score` prefers the override only for completed executions; pending/unlinked attempts have empty grades. CSV fields are escaped to reduce spreadsheet formula injection risk. Downloads are private and non-cacheable. This is an attempt-level export, **not** final per-student grade aggregation.
 
 ### Instructor grade overrides
