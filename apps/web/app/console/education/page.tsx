@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "../../../lib/api";
+import { API, api } from "../../../lib/api";
 
 type Project = { id: string; name: string };
 type Course = { id: string; title: string; description: string; status: string };
@@ -124,6 +124,36 @@ export default function EducationPage() {
     } catch (e) { setError((e as Error).message); }
   }
 
+  async function downloadGrades(assignmentId: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const token = sessionStorage.getItem("ca_access");
+      if (!token) throw new Error("Sign in to download grades");
+      const response = await fetch(`${API}/v1/education/assignments/${assignmentId}/grades.csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        let message = `Grade export failed (HTTP ${response.status})`;
+        try { const error = await response.json(); message = error.error?.message || message; }
+        catch { /* Non-JSON errors retain the status message. */ }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      try {
+        const element = document.createElement("a");
+        element.href = url;
+        element.download = `assignment-${assignmentId}-grades.csv`;
+        document.body.appendChild(element);
+        element.click();
+        element.remove();
+      } finally { URL.revokeObjectURL(url); }
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return (
     <>
       <div className="page-title"><div><h1>Education</h1>
@@ -177,7 +207,11 @@ export default function EducationPage() {
               </td></tr>)}</tbody></table></div>}
       </section>}
       {selectedAssignment && <section className="panel">
-        <div className="panel-head">GRADE SUMMARY · BEST COMPLETED ATTEMPT</div>
+        <div className="panel-head">
+          <span>GRADE SUMMARY · BEST COMPLETED ATTEMPT</span>
+          <button className="button small" disabled={busy}
+            onClick={() => void downloadGrades(selectedAssignment)}>Download grades CSV</button>
+        </div>
         {grades.length === 0 ? <p className="muted" style={{ padding: 16 }}>No enrolled learners or grade summary available.</p> :
           <div className="table-wrap"><table><thead><tr><th>Learner ID</th><th>Attempts</th><th>Completed</th><th>Best score</th></tr></thead>
             <tbody>{grades.map((g) => <tr key={g.user_id}><td className="mono">{g.user_id}</td>
