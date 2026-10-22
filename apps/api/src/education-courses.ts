@@ -100,6 +100,26 @@ export function registerEducationCourses(app: FastifyInstance) {
     return { courseId, userId: body.userId, ...result };
   });
 
+  app.get("/v1/education/courses/:courseId/enrollments", async (req) => {
+    const courseId = uuid.parse((req.params as { courseId: string }).courseId);
+    const user = await actor(req);
+    if (!user.userId)
+      throw Object.assign(new Error("User session required"), { statusCode: 403 });
+    const course = (await pool.query(
+      "SELECT project_id FROM education_courses WHERE id=$1", [courseId],
+    )).rows[0];
+    if (!course)
+      throw Object.assign(new Error("Course not found"), { statusCode: 404 });
+    await authorize(user, course.project_id, "submissions:read", true);
+    const result = await pool.query(
+      `SELECT e.user_id,u.email,e.enrolled_at
+         FROM education_enrollments e JOIN users u ON u.id=e.user_id
+        WHERE e.course_id=$1 ORDER BY e.enrolled_at DESC,e.user_id DESC LIMIT 1000`,
+      [courseId],
+    );
+    return { items: result.rows };
+  });
+
   app.delete("/v1/education/courses/:courseId/enrollments/:userId", async (req) => {
     const params = z.object({ courseId: uuid, userId: uuid }).parse(req.params);
     const user = await actor(req);
