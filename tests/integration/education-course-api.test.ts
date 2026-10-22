@@ -69,6 +69,22 @@ afterAll(async () => {
   const users = Object.values(ids);
   await db.query("DELETE FROM audit_logs WHERE user_id=ANY($1::uuid[])", [users]);
   await db.query("DELETE FROM sessions WHERE user_id=ANY($1::uuid[])", [users]);
+  // Also clean fixtures when an assertion fails before the test's normal teardown.
+  if (projectId) {
+    await db.query("DELETE FROM education_courses WHERE project_id=$1", [projectId]);
+    const fixtureIds = (await db.query(
+      "SELECT id FROM challenges WHERE project_id=$1 AND slug LIKE 'education-integration-%'",
+      [projectId],
+    )).rows.map((row: { id: string }) => row.id);
+    if (fixtureIds.length) {
+      await db.query(
+        "DELETE FROM submission_results WHERE submission_id IN (SELECT id FROM submissions WHERE challenge_id=ANY($1::uuid[]))",
+        [fixtureIds],
+      );
+      await db.query("DELETE FROM submissions WHERE challenge_id=ANY($1::uuid[])", [fixtureIds]);
+      await db.query("DELETE FROM challenges WHERE id=ANY($1::uuid[])", [fixtureIds]);
+    }
+  }
   if (projectId) await db.query("DELETE FROM projects WHERE id=$1", [projectId]);
   if (orgId) await db.query("DELETE FROM organizations WHERE id=$1", [orgId]);
   await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [users]);
@@ -230,6 +246,10 @@ describe("education course API authorization", () => {
       `INSERT INTO submission_results(submission_id,verdict,stdout,stderr,wall_ms,cpu_ms,peak_memory_bytes,score)
        VALUES($1,'accepted','','',12,11,1024,80)`, [submissionId],
     );
+    // An AFTER INSERT trigger recalculates score from test snapshots (none in this
+    // synthetic completed-submission fixture). Set the completed result's score
+    // explicitly after insertion so the projection layer sees the seeded 80.
+    await db.query("UPDATE submission_results SET score=80 WHERE submission_id=$1", [submissionId]);
     const linkPath = `/v1/education/attempts/${attemptId}/submission`;
     const link = await request(linkPath, tokens.learner, "PUT", { submissionId });
     expect(link.status).toBe(200);
