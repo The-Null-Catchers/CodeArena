@@ -6,12 +6,15 @@ import { API, api } from "../../../lib/api";
 type Project = { id: string; name: string };
 type Course = { id: string; title: string; description: string; status: string };
 type Assignment = { id: string; title: string; status: string; max_attempts: number; due_at: string | null };
+type Enrollment = { user_id: string; email: string; enrolled_at: string };
 type Grade = { user_id: string; attempt_count: number; completed_count: number; best_score: string | null };
 
 export default function EducationPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [courses, setCourses] = useState<Course[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
   const [courseId, setCourseId] = useState("");
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -53,15 +56,39 @@ export default function EducationPage() {
 
   useEffect(() => {
     setAssignments([]);
+    setEnrollments([]);
     setGrades([]);
     setSelectedAssignment("");
     if (!courseId) return;
     let active = true;
+    void refreshEnrollments(courseId);
     api(`/v1/education/courses/${courseId}/assignments`).then((result) => {
       if (active) setAssignments(result.items || []);
     }).catch((e) => { if (active) setError((e as Error).message); });
     return () => { active = false; };
   }, [courseId]);
+
+  async function refreshEnrollments(id: string) {
+    setRosterLoading(true);
+    try {
+      const result = await api(`/v1/education/courses/${id}/enrollments`);
+      if (id === courseId) setEnrollments(result.items || []);
+    } catch (e) { setError((e as Error).message); }
+    finally { setRosterLoading(false); }
+  }
+
+  async function removeEnrollment(userId: string) {
+    if (!courseId || !window.confirm("Remove this learner from the course?")) return;
+    setBusy(true);
+    setError("");
+    setEnrollmentNotice("");
+    try {
+      await api(`/v1/education/courses/${courseId}/enrollments/${userId}`, { method: "DELETE" });
+      setEnrollments((old) => old.filter((item) => item.user_id !== userId));
+      setEnrollmentNotice("Learner removed from this course.");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
 
   async function createCourse() {
     if (!projectId || !courseTitle.trim()) return;
@@ -101,6 +128,7 @@ export default function EducationPage() {
         method: "POST", body: JSON.stringify({ userId: enrollmentUserId.trim() }),
       });
       setEnrollmentNotice(result.enrolled ? "Learner enrolled successfully." : "Learner is already enrolled.");
+      await refreshEnrollments(courseId);
       setEnrollmentUserId("");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -220,6 +248,16 @@ export default function EducationPage() {
         </div>
         <p className="muted" style={{ padding: "0 16px 12px" }}>Only existing members of this project can be enrolled. Owner/admin permissions are enforced by the API.</p>
         {enrollmentNotice && <p role="status" style={{ padding: "0 16px 12px" }}>{enrollmentNotice}</p>}
+        {rosterLoading && <p className="muted" role="status" style={{ padding: 16 }}>Loading enrolled learners…</p>}
+        {!rosterLoading && enrollments.length === 0 && <p className="muted" style={{ padding: 16 }}>No learners enrolled in this course.</p>}
+        {enrollments.length > 0 && <div className="table-wrap"><table>
+          <thead><tr><th>Email</th><th>Learner ID</th><th>Enrolled</th><th>Action</th></tr></thead>
+          <tbody>{enrollments.map((learner) => <tr key={learner.user_id}>
+            <td>{learner.email}</td><td className="mono">{learner.user_id}</td>
+            <td>{new Date(learner.enrolled_at).toLocaleString()}</td>
+            <td><button className="button small" disabled={busy} onClick={() => void removeEnrollment(learner.user_id)}>Remove</button></td>
+          </tr>)}</tbody>
+        </table></div>}
       </section>}
       {courseId && <section className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head">ASSIGNMENTS</div>
