@@ -25,7 +25,7 @@ CPU sampling can overshoot by a sampling interval or Docker response delay; CPU 
 
 The public playground UI requires authentication to create jobs; anonymous execution admission is deliberately not implemented. Email verification links exist, but verification is not currently an execution gate. Session tokens are stored in sessionStorage by the web client; switch to appropriately secured HttpOnly-cookie sessions for a hardened public browser deployment. Webhooks are at least once; recipient deduplication and replay checks are required.
 
-MinIO is provisioned for future artifacts. No artifact upload/download implementation or compilation cache should be inferred. Do not change registry images or runtime versions without requalifying their security and compatibility.
+Bounded artifact capture/download and immutable compilation caching use S3-compatible object storage. Keep the object-store API and credentials private, configure retention and garbage collection, and verify tenant isolation and safe artifact-download headers on the deployment host. Public Caddy ingress denies `/metrics` paths, while Prometheus scrapes internal service ports. Do not change registry images or runtime versions without requalifying their security and compatibility.
 
 ## Reporting
 

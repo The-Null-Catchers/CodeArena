@@ -1,5 +1,10 @@
 :80 {
-  @api path /v1/* /health* /metrics
+  # Metrics are scraped on the private control network, never through public ingress.
+  # "respond" takes precedence over the catch-all web handler.
+  @private_metrics path /metrics /metrics/*
+  respond @private_metrics 404
+
+  @api path /v1/* /health*
   handle @api {
     reverse_proxy api:4000 {
       flush_interval -1
