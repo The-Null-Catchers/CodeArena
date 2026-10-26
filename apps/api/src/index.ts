@@ -661,7 +661,16 @@ app.get("/v1/artifacts/:id/download", async (req, reply) => {
 
 app.post("/v1/submissions/:id/cancel", async (req) => {
   const s = await own(req);
-  await authorize(await actor(req), s.project_id, "submissions:create");
+  const caller = await actor(req);
+  // Learners can stop their own admitted education execution, not unrelated jobs.
+  const ownEducationExecution = s.user_id === caller.userId && Boolean(
+    (await pool.query(
+      "SELECT 1 FROM education_assignment_attempts WHERE submission_id=$1 AND user_id=$2",
+      [s.id, caller.userId],
+    )).rowCount,
+  );
+  await authorize(caller, s.project_id,
+    ownEducationExecution ? "submissions:read" : "submissions:create");
   await tx(async (c) => {
     const locked = (
       await c.query("SELECT state FROM submissions WHERE id=$1 FOR UPDATE", [
