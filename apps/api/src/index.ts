@@ -350,7 +350,11 @@ const create = async (req: any, body: unknown) => {
   const a = await actor(req),
     b = submissionSchema.parse(body),
     r = getRuntime(b.language, b.version);
-  await authorize(a, b.projectId, "submissions:create");
+  // Viewer-role learners may execute *only* against a reservation they own.
+  // The reservation, enrollment and challenge are validated under a DB lock below.
+  if (b.educationAttemptId && !a.userId)
+    throw Object.assign(new Error("User session required for education attempts"), { statusCode: 403 });
+  await authorize(a, b.projectId, b.educationAttemptId ? "submissions:read" : "submissions:create");
   const [projectBudget, identityBudget] = await Promise.all([
     pool.query(
       "SELECT submissions_per_minute FROM projects WHERE id=$1",
@@ -416,13 +420,17 @@ const create = async (req: any, body: unknown) => {
     if (b.challengeId) {
       challenge = (
         await c.query(
-          "SELECT id,judge FROM challenges WHERE id=$1 AND (visibility='public' OR project_id=$2) FOR SHARE",
+          "SELECT id,judge,status FROM challenges WHERE id=$1 AND (visibility='public' OR project_id=$2) FOR SHARE",
           [b.challengeId, b.projectId],
         )
       ).rows[0];
       if (!challenge)
         throw Object.assign(new Error("Challenge unavailable"), {
           statusCode: 404,
+        });
+      if (b.educationAttemptId && challenge.status !== "published")
+        throw Object.assign(new Error("Education challenge must be published"), {
+          statusCode: 409,
         });
       const allowed = (
         await c.query(
@@ -453,7 +461,7 @@ const create = async (req: any, body: unknown) => {
       if (!a.userId)
         throw Object.assign(new Error("User session required for education attempts"), { statusCode: 403 });
       const attempt = (await c.query(
-        `SELECT at.user_id,at.submission_id,ea.challenge_id,ea.status AS assignment_status,
+        `SELECT at.user_id,at.submission_id,ea.challenge_id,ea.course_id,ea.status AS assignment_status,
                 ea.due_at,ec.project_id,ec.status AS course_status
            FROM education_assignment_attempts at
            JOIN education_assignments ea ON ea.id=at.assignment_id
@@ -472,11 +480,8 @@ const create = async (req: any, body: unknown) => {
       if (attempt.due_at && new Date(attempt.due_at).getTime() <= Date.now())
         throw Object.assign(new Error("Assignment deadline passed"), { statusCode: 409 });
       const enrollment = await c.query(
-        `SELECT 1 FROM education_enrollments e
-           JOIN education_assignment_attempts at ON at.assignment_id IN
-             (SELECT id FROM education_assignments WHERE course_id=e.course_id)
-          WHERE at.id=$1 AND e.user_id=$2`,
-        [b.educationAttemptId, a.userId],
+        "SELECT 1 FROM education_enrollments WHERE course_id=$1 AND user_id=$2",
+        [attempt.course_id, a.userId],
       );
       if (!enrollment.rowCount)
         throw Object.assign(new Error("Enrollment required"), { statusCode: 403 });
