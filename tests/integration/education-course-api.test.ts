@@ -127,6 +127,12 @@ describe("education course API authorization", () => {
     expect(invalidMember.status).toBe(400);
     const enrolled = await request(enrollPath, tokens.owner, "POST", { userId: ids.learner });
     expect(enrolled.status).toBe(201);
+    const rosterDenied = await request(enrollPath, tokens.learner);
+    expect(rosterDenied.status).toBe(403);
+    expect((await request(enrollPath, tokens.outsider)).status).toBe(403);
+    const roster = await request(enrollPath, tokens.owner);
+    expect(roster.status).toBe(200);
+    expect(roster.body.items.some((entry: { user_id: string }) => entry.user_id === ids.learner)).toBe(true);
     const duplicate = await request(enrollPath, tokens.owner, "POST", { userId: ids.learner });
     expect(duplicate.status).toBe(200);
     expect(duplicate.body.enrolled).toBe(false);
@@ -141,6 +147,8 @@ describe("education course API authorization", () => {
     );
     expect(removed.status).toBe(200);
     expect(removed.body.removed).toBe(true);
+    const afterRemoval = await request(enrollPath, tokens.owner);
+    expect(afterRemoval.body.items.some((entry: { user_id: string }) => entry.user_id === ids.learner)).toBe(false);
     const learnerAfterRemoval = await request(path, tokens.learner);
     expect(learnerAfterRemoval.body.items).toEqual([]);
   }, 60_000);
