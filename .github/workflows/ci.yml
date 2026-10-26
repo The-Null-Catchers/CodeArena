@@ -72,7 +72,7 @@ jobs:
           curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8080/health/ready
           # Caddy must never forward unauthenticated Prometheus metrics externally.
           for path in /metrics /metrics/ /metrics/private; do
-            status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "http://localhost:8080$path")
+            status=$(curl --location --max-redirs 3 --silent --show-error --output /dev/null --write-out '%{http_code}' "http://localhost:8080$path")
             test "$status" = 404 || { echo "Public metrics leak: $path returned $status"; exit 1; }
           done
           # The API's metrics endpoint remains available to internal scrapers.
