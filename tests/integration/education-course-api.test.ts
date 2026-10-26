@@ -212,6 +212,47 @@ describe("education course API authorization", () => {
     expect(reopen.status).toBe(409);
   }, 60_000);
 
+  it("atomically links an eligible learner solution and rejects duplicate admission", async () => {
+    const challengeId = (await db.query(
+      `INSERT INTO challenges(project_id,slug,title,description,difficulty,visibility,status)
+       VALUES($1,$2,'Atomic learner challenge','Fixture','easy','private','published') RETURNING id`,
+      [projectId, `education-integration-${crypto.randomUUID()}`],
+    )).rows[0].id as string;
+    await db.query(
+      "INSERT INTO challenge_test_cases(challenge_id,position,stdin,expected,hidden,weight) VALUES($1,0,'',$2,true,100)",
+      [challengeId, "42\\n"],
+    );
+    const course = await request("/v1/education/courses", tokens.owner, "POST", {
+      projectId, title: "Atomic admission course",
+    });
+    expect(course.status).toBe(201);
+    const courseId = course.body.id as string;
+    const assignment = await request(`/v1/education/courses/${courseId}/assignments`,
+      tokens.owner, "POST", { title: "Atomic assignment", challengeId });
+    expect(assignment.status).toBe(201);
+    expect((await request(`/v1/education/courses/${courseId}/status`,
+      tokens.owner, "PATCH", { status: "published" })).status).toBe(200);
+    expect((await request(`/v1/education/courses/${courseId}/assignments/${assignment.body.id}/status`,
+      tokens.owner, "PATCH", { status: "published" })).status).toBe(200);
+    expect((await request(`/v1/education/courses/${courseId}/enrollments`,
+      tokens.owner, "POST", { userId: ids.learner })).status).toBe(201);
+    const reservation = await request(`/v1/education/assignments/${assignment.body.id}/attempts`,
+      tokens.learner, "POST", {});
+    expect(reservation.status).toBe(201);
+    const admission = { projectId, language: "python", version: "3.13",
+      source: "print(42)", mode: "challenge", challengeId,
+      educationAttemptId: reservation.body.id };
+    expect((await request("/v1/submissions", tokens.owner, "POST", admission)).status).toBe(404);
+    const accepted = await request("/v1/submissions", tokens.learner, "POST", admission);
+    expect(accepted.status).toBe(202);
+    const record = (await db.query(
+      "SELECT submission_id FROM education_assignment_attempts WHERE id=$1",
+      [reservation.body.id],
+    )).rows[0];
+    expect(record.submission_id).toBe(accepted.body.id);
+    expect((await request("/v1/submissions", tokens.learner, "POST", admission)).status).toBe(409);
+  }, 60_000);
+
   it("links a scored challenge submission to an attempt and reflects instructor overrides", async () => {
     const course = await request("/v1/education/courses", tokens.owner, "POST", {
       projectId, title: "Scored linked submission course",
