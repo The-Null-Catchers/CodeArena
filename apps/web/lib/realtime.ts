@@ -97,6 +97,8 @@ export async function connectSubmissionStream(
         buffer = buffer.replace(/\r\n/g, "\n");
         let boundary: number;
         while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+          if (boundary > 2 * 1024 * 1024)
+            throw new NonRetryableStreamError("Execution event exceeded stream frame limit");
           const frame = parseSseFrame(buffer.slice(0, boundary));
           buffer = buffer.slice(boundary + 2);
           if (!frame) continue;
