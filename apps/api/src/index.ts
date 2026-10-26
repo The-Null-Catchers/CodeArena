@@ -350,7 +350,11 @@ const create = async (req: any, body: unknown) => {
   const a = await actor(req),
     b = submissionSchema.parse(body),
     r = getRuntime(b.language, b.version);
-  await authorize(a, b.projectId, "submissions:create");
+  // Viewer-role learners may execute *only* against a reservation they own.
+  // The reservation, enrollment and challenge are validated under a DB lock below.
+  if (b.educationAttemptId && !a.userId)
+    throw Object.assign(new Error("User session required for education attempts"), { statusCode: 403 });
+  await authorize(a, b.projectId, b.educationAttemptId ? "submissions:read" : "submissions:create");
   const [projectBudget, identityBudget] = await Promise.all([
     pool.query(
       "SELECT submissions_per_minute FROM projects WHERE id=$1",
@@ -416,13 +420,17 @@ const create = async (req: any, body: unknown) => {
     if (b.challengeId) {
       challenge = (
         await c.query(
-          "SELECT id,judge FROM challenges WHERE id=$1 AND (visibility='public' OR project_id=$2) FOR SHARE",
+          "SELECT id,judge,status FROM challenges WHERE id=$1 AND (visibility='public' OR project_id=$2) FOR SHARE",
           [b.challengeId, b.projectId],
         )
       ).rows[0];
       if (!challenge)
         throw Object.assign(new Error("Challenge unavailable"), {
           statusCode: 404,
+        });
+      if (b.educationAttemptId && challenge.status !== "published")
+        throw Object.assign(new Error("Education challenge must be published"), {
+          statusCode: 409,
         });
       const allowed = (
         await c.query(
@@ -447,6 +455,37 @@ const create = async (req: any, body: unknown) => {
         new Error("Runtime image has not been registered by a worker"),
         { statusCode: 400 },
       );
+    // Lock the reservation in the same transaction that admits execution:
+    // a browser disconnect cannot leave an accepted solution ungraded.
+    if (b.educationAttemptId) {
+      if (!a.userId)
+        throw Object.assign(new Error("User session required for education attempts"), { statusCode: 403 });
+      const attempt = (await c.query(
+        `SELECT at.user_id,at.submission_id,ea.challenge_id,ea.course_id,ea.status AS assignment_status,
+                ea.due_at,ec.project_id,ec.status AS course_status
+           FROM education_assignment_attempts at
+           JOIN education_assignments ea ON ea.id=at.assignment_id
+           JOIN education_courses ec ON ec.id=ea.course_id
+          WHERE at.id=$1 FOR UPDATE OF at`,
+        [b.educationAttemptId],
+      )).rows[0];
+      if (!attempt || attempt.user_id !== a.userId)
+        throw Object.assign(new Error("Attempt not found"), { statusCode: 404 });
+      if (attempt.project_id !== b.projectId || attempt.challenge_id !== b.challengeId)
+        throw Object.assign(new Error("Attempt does not match project and challenge"), { statusCode: 403 });
+      if (attempt.submission_id)
+        throw Object.assign(new Error("Attempt already linked"), { statusCode: 409 });
+      if (attempt.assignment_status !== "published" || attempt.course_status !== "published")
+        throw Object.assign(new Error("Assignment unavailable"), { statusCode: 409 });
+      if (attempt.due_at && new Date(attempt.due_at).getTime() <= Date.now())
+        throw Object.assign(new Error("Assignment deadline passed"), { statusCode: 409 });
+      const enrollment = await c.query(
+        "SELECT 1 FROM education_enrollments WHERE course_id=$1 AND user_id=$2",
+        [attempt.course_id, a.userId],
+      );
+      if (!enrollment.rowCount)
+        throw Object.assign(new Error("Enrollment required"), { statusCode: 403 });
+    }
     const definition = snapshotRuntime(r, image.image_id);
     const row = (
       await c.query(
@@ -471,6 +510,17 @@ const create = async (req: any, body: unknown) => {
     );
     if (b.mode === "challenge")
       await captureJudgingSnapshot(c, row.id, challenge.id, challenge.judge);
+    if (b.educationAttemptId) {
+      const linked = await c.query(
+        "UPDATE education_assignment_attempts SET submission_id=$2 WHERE id=$1 AND submission_id IS NULL",
+        [b.educationAttemptId, row.id],
+      );
+      if (!linked.rowCount)
+        throw Object.assign(new Error("Attempt already linked"), { statusCode: 409 });
+      await audit(c, "education.attempt.submission.link", a.userId!, b.educationAttemptId, {
+        submissionId: row.id, method: "atomic_admission",
+      });
+    }
     await c.query(
       "INSERT INTO submission_events(submission_id,state,reason) VALUES($1,'created','Request accepted')",
       [row.id],
@@ -611,7 +661,16 @@ app.get("/v1/artifacts/:id/download", async (req, reply) => {
 
 app.post("/v1/submissions/:id/cancel", async (req) => {
   const s = await own(req);
-  await authorize(await actor(req), s.project_id, "submissions:create");
+  const caller = await actor(req);
+  // Learners can stop their own admitted education execution, not unrelated jobs.
+  const ownEducationExecution = s.user_id === caller.userId && Boolean(
+    (await pool.query(
+      "SELECT 1 FROM education_assignment_attempts WHERE submission_id=$1 AND user_id=$2",
+      [s.id, caller.userId],
+    )).rowCount,
+  );
+  await authorize(caller, s.project_id,
+    ownEducationExecution ? "submissions:read" : "submissions:create");
   await tx(async (c) => {
     const locked = (
       await c.query("SELECT state FROM submissions WHERE id=$1 FOR UPDATE", [

@@ -233,6 +233,46 @@ describe("education course API authorization", () => {
       tokens.owner, "PATCH", { status: "published" })).status).toBe(409);
   }, 60_000);
 
+  it("rolls back education admission if immutable judging tests are unavailable", async () => {
+    const challengeId = (await db.query(
+      `INSERT INTO challenges(project_id,slug,title,description,difficulty,visibility,status)
+       VALUES($1,$2,'Atomic learner challenge','Fixture','easy','private','published') RETURNING id`,
+      [projectId, `education-integration-${crypto.randomUUID()}`],
+    )).rows[0].id as string;
+    // Deliberately omit challenge tests: snapshot admission must roll back.
+    const course = await request("/v1/education/courses", tokens.owner, "POST", {
+      projectId, title: "Atomic admission course",
+    });
+    expect(course.status).toBe(201);
+    const courseId = course.body.id as string;
+    const assignment = await request(`/v1/education/courses/${courseId}/assignments`,
+      tokens.owner, "POST", { title: "Atomic assignment", challengeId });
+    expect(assignment.status).toBe(201);
+    expect((await request(`/v1/education/courses/${courseId}/status`,
+      tokens.owner, "PATCH", { status: "published" })).status).toBe(200);
+    expect((await request(`/v1/education/courses/${courseId}/assignments/${assignment.body.id}/status`,
+      tokens.owner, "PATCH", { status: "published" })).status).toBe(200);
+    expect((await request(`/v1/education/courses/${courseId}/enrollments`,
+      tokens.owner, "POST", { userId: ids.learner })).status).toBe(201);
+    const reservation = await request(`/v1/education/assignments/${assignment.body.id}/attempts`,
+      tokens.learner, "POST", {});
+    expect(reservation.status).toBe(201);
+    const admission = { projectId, language: "python", version: "3.13",
+      source: "print(42)", mode: "challenge", challengeId,
+      educationAttemptId: reservation.body.id };
+    expect((await request("/v1/submissions", tokens.owner, "POST", admission)).status).toBe(404);
+    const rejected = await request("/v1/submissions", tokens.learner, "POST", admission);
+    expect(rejected.status).toBe(400);
+    const record = (await db.query(
+      "SELECT submission_id FROM education_assignment_attempts WHERE id=$1",
+      [reservation.body.id],
+    )).rows[0];
+    expect(record.submission_id).toBeNull();
+    expect((await request("/v1/submissions", tokens.learner, "POST", {
+      projectId, language: "python", version: "3.13", source: "print(7)",
+    })).status).toBe(403);
+  }, 60_000);
+
   it("links a scored challenge submission to an attempt and reflects instructor overrides", async () => {
     const course = await request("/v1/education/courses", tokens.owner, "POST", {
       projectId, title: "Scored linked submission course",
