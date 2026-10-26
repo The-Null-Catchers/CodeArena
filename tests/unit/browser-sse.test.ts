@@ -75,6 +75,15 @@ describe("browser execution SSE transport", () => {
     expect(count).toBe(1);
   });
 
+  it("rejects a complete oversized frame before JSON parsing", async () => {
+    const large = "x".repeat(2 * 1024 * 1024 + 1);
+    const mock = (async () => sse(`event: output\\ndata: ${large}\\n\\n`)) as typeof fetch;
+    await expect(connectSubmissionStream("http://localhost/events", "token",
+      new AbortController().signal, () => {}, {
+        fetcher: mock, maxReconnects: 0,
+      })).rejects.toThrow("frame limit");
+  });
+
   it("keeps UTF-8 and CRLF frames intact across chunk boundaries", async () => {
     const seen: any[] = [];
     const mock = (async () => sse(
