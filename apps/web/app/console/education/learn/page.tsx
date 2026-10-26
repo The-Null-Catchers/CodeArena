@@ -141,18 +141,17 @@ export default function LearnerEducationPage() {
         body: JSON.stringify({
           projectId, language, version: versionParts.join(":"), source,
           stdin: "", mode: "challenge", challengeId: assignment.challenge_id,
+          educationAttemptId: attempt.id,
         }),
       });
-      const link: PendingLink = {
-        projectId, assignmentId: assignment.id, attemptId: attempt.id, submissionId: submission.id,
-      };
-      // Persist before linking so network failures or reloads never require re-submission.
-      sessionStorage.setItem("ca_education_pending_link", JSON.stringify(link));
-      setPendingLink(link);
+      // The API atomically admits execution and links the reserved attempt.
+      // An uncertain network response is reconciled by fetching server history.
       setSubmittedId(submission.id);
-      await linkExecution(link);
+      await refreshAttempts(assignment.id);
+      setSubmitAttemptId("");
+      setSource("");
     } catch (e) {
-      setError(`${(e as Error).message}. If execution was admitted, retry linking the existing submission; do not submit the code again.`);
+      setError(`${(e as Error).message}. Refresh attempt history before retrying: execution may already have been admitted.`);
     } finally { setBusyId(""); }
   }
 
@@ -162,7 +161,7 @@ export default function LearnerEducationPage() {
         <h1>My learning</h1>
         <p>View enrolled courses, published assignments and your private attempt history.</p>
       </div><span className="pill">LEARNER WORKSPACE</span></div>
-      <p className="muted">Attempt reservation is available here. Code submission and grading run through the execution workflow separately.</p>
+      <p className="muted">Reserve an attempt, then submit code. Admission and assignment linking are atomic; grades follow the execution verdict.</p>
       {error && <div className="error" role="alert">{error}</div>}
       {submittedId && <p role="status">Execution admitted: <Link href={`/console/submissions/${submittedId}`}>{submittedId}</Link></p>}
       {pendingLink && <section className="panel" style={{ padding: 16, marginBottom: 16 }} role="status">

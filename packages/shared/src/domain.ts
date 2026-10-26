@@ -77,12 +77,17 @@ export const submissionSchema = z
     limits: limitSchema.default({}),
     priority: z.enum(["low", "normal", "high", "system"]).default("normal"),
     challengeId: z.string().uuid().optional(),
+    educationAttemptId: z.string().uuid().optional(),
     mode: z.enum(["run", "challenge"]).default("run"),
   })
   .strict()
   .refine(
     (x) => x.mode !== "challenge" || !!x.challengeId,
     "Challenge ID required",
+  )
+  .refine(
+    (x) => !x.educationAttemptId || (x.mode === "challenge" && Boolean(x.challengeId)),
+    "Education attempt requires challenge mode and a challenge ID",
   );
 export type Verdict =
   | "accepted"

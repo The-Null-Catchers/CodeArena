@@ -447,6 +447,40 @@ const create = async (req: any, body: unknown) => {
         new Error("Runtime image has not been registered by a worker"),
         { statusCode: 400 },
       );
+    // Lock the reservation in the same transaction that admits execution:
+    // a browser disconnect cannot leave an accepted solution ungraded.
+    if (b.educationAttemptId) {
+      if (!a.userId)
+        throw Object.assign(new Error("User session required for education attempts"), { statusCode: 403 });
+      const attempt = (await c.query(
+        `SELECT at.user_id,at.submission_id,ea.challenge_id,ea.status AS assignment_status,
+                ea.due_at,ec.project_id,ec.status AS course_status
+           FROM education_assignment_attempts at
+           JOIN education_assignments ea ON ea.id=at.assignment_id
+           JOIN education_courses ec ON ec.id=ea.course_id
+          WHERE at.id=$1 FOR UPDATE OF at`,
+        [b.educationAttemptId],
+      )).rows[0];
+      if (!attempt || attempt.user_id !== a.userId)
+        throw Object.assign(new Error("Attempt not found"), { statusCode: 404 });
+      if (attempt.project_id !== b.projectId || attempt.challenge_id !== b.challengeId)
+        throw Object.assign(new Error("Attempt does not match project and challenge"), { statusCode: 403 });
+      if (attempt.submission_id)
+        throw Object.assign(new Error("Attempt already linked"), { statusCode: 409 });
+      if (attempt.assignment_status !== "published" || attempt.course_status !== "published")
+        throw Object.assign(new Error("Assignment unavailable"), { statusCode: 409 });
+      if (attempt.due_at && new Date(attempt.due_at).getTime() <= Date.now())
+        throw Object.assign(new Error("Assignment deadline passed"), { statusCode: 409 });
+      const enrollment = await c.query(
+        `SELECT 1 FROM education_enrollments e
+           JOIN education_assignment_attempts at ON at.assignment_id IN
+             (SELECT id FROM education_assignments WHERE course_id=e.course_id)
+          WHERE at.id=$1 AND e.user_id=$2`,
+        [b.educationAttemptId, a.userId],
+      );
+      if (!enrollment.rowCount)
+        throw Object.assign(new Error("Enrollment required"), { statusCode: 403 });
+    }
     const definition = snapshotRuntime(r, image.image_id);
     const row = (
       await c.query(
@@ -471,6 +505,17 @@ const create = async (req: any, body: unknown) => {
     );
     if (b.mode === "challenge")
       await captureJudgingSnapshot(c, row.id, challenge.id, challenge.judge);
+    if (b.educationAttemptId) {
+      const linked = await c.query(
+        "UPDATE education_assignment_attempts SET submission_id=$2 WHERE id=$1 AND submission_id IS NULL",
+        [b.educationAttemptId, row.id],
+      );
+      if (!linked.rowCount)
+        throw Object.assign(new Error("Attempt already linked"), { statusCode: 409 });
+      await audit(c, "education.attempt.submission.link", a.userId!, b.educationAttemptId, {
+        submissionId: row.id, method: "atomic_admission",
+      });
+    }
     await c.query(
       "INSERT INTO submission_events(submission_id,state,reason) VALUES($1,'created','Request accepted')",
       [row.id],
