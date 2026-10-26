@@ -251,6 +251,11 @@ describe("education course API authorization", () => {
     )).rows[0];
     expect(record.submission_id).toBe(accepted.body.id);
     expect((await request("/v1/submissions", tokens.learner, "POST", admission)).status).toBe(409);
+    expect((await request("/v1/submissions", tokens.learner, "POST", {
+      projectId, language: "python", version: "3.13", source: "print(7)",
+    })).status).toBe(403);
+    expect((await request(`/v1/submissions/${accepted.body.id}/cancel`,
+      tokens.learner, "POST", {})).status).toBe(200);
   }, 60_000);
 
   it("links a scored challenge submission to an attempt and reflects instructor overrides", async () => {
