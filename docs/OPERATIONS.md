@@ -4,7 +4,7 @@
 
 Build language images before starting worker services. Compose starts PostgreSQL, Redis, migration/seed, API, scheduler, worker, web, MinIO, Mailpit, Caddy, Prometheus, and Grafana. Persistent named volumes preserve database, Redis, monitoring, and future object-storage data. Redis uses noeviction so BullMQ state is not silently evicted. Redis capacity/exhaustion requires monitoring.
 
-Database/Redis/web/API/monitoring ports bind to localhost by default; only Caddy :8080 is exposed. Set exact WEB_ORIGIN/NEXT_PUBLIC_API_URL for the actual browser origin; changing a Next public environment value requires a rebuild. Development Caddy serves HTTP. For production use a real hostname and TLS, restrict /metrics and admin dependencies, and close direct service ports.
+Database/Redis/web/API/monitoring ports bind to localhost by default; only Caddy :8080 is exposed. The public Caddy ingress intentionally returns HTTP 404 for `/metrics` and `/metrics/*`; Prometheus scrapes `/metrics` directly on private service ports inside the control network. Do not reverse-proxy internal telemetry without explicit authentication and network policy. Set exact WEB_ORIGIN/NEXT_PUBLIC_API_URL for the actual browser origin; changing a Next public environment value requires a rebuild. Development Caddy serves HTTP. For production use a real hostname and TLS, restrict /metrics and admin dependencies, and close direct service ports.
 
 `.env.example` contains development-only values. Generate independent random secrets. WEBHOOK_ENCRYPTION_KEY must be 64 hex characters. Back up this key securely; losing it prevents stored webhook/mail secrets from decrypting. Changing it requires an explicit re-encryption migration.
 

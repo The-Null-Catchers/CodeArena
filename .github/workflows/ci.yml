@@ -70,6 +70,13 @@ jobs:
       - run: docker compose exec -T prometheus promtool check rules /etc/prometheus/scheduler-alerts.yml
       - run: |
           curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:8080/health/ready
+          # Caddy must never forward unauthenticated Prometheus metrics externally.
+          for path in /metrics /metrics/ /metrics/private; do
+            status=$(curl --location --max-redirs 3 --silent --show-error --output /dev/null --write-out '%{http_code}' "http://localhost:8080$path")
+            test "$status" = 404 || { echo "Public metrics leak: $path returned $status"; exit 1; }
+          done
+          # The API's metrics endpoint remains available to internal scrapers.
+          docker compose exec -T api node -e "fetch('http://localhost:4000/metrics').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"
           curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:9090/-/ready
           curl --fail --retry 10 --retry-delay 2 --retry-all-errors http://localhost:3001/api/health
           docker compose exec -T api node -e "fetch('http://minio:9000/minio/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
