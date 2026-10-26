@@ -20,6 +20,9 @@ export default function EducationPage() {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState("");
   const [courseTitle, setCourseTitle] = useState("");
+  const [editCourseTitle, setEditCourseTitle] = useState("");
+  const [editCourseDescription, setEditCourseDescription] = useState("");
+  const [courseEditNotice, setCourseEditNotice] = useState("");
   const [enrollmentUserId, setEnrollmentUserId] = useState("");
   const [enrollmentNotice, setEnrollmentNotice] = useState("");
   const [assignmentTitle, setAssignmentTitle] = useState("");
@@ -53,6 +56,13 @@ export default function EducationPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [projectId]);
+
+  useEffect(() => {
+    const selected = courses.find((course) => course.id === courseId);
+    setEditCourseTitle(selected?.title ?? "");
+    setEditCourseDescription(selected?.description ?? "");
+    setCourseEditNotice("");
+  }, [courseId, courses]);
 
   useEffect(() => {
     setAssignments([]);
@@ -114,6 +124,22 @@ export default function EducationPage() {
         method: "PATCH", body: JSON.stringify({ status }),
       });
       setCourses((old) => old.map((item) => item.id === courseId ? { ...item, status: result.status } : item));
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function saveCourseDetails() {
+    if (!courseId || !editCourseTitle.trim()) return;
+    setBusy(true);
+    setError("");
+    setCourseEditNotice("");
+    try {
+      const updated: Course = await api(`/v1/education/courses/${courseId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: editCourseTitle.trim(), description: editCourseDescription }),
+      });
+      setCourses((old) => old.map((course) => course.id === updated.id ? updated : course));
+      setCourseEditNotice("Course details saved.");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
@@ -233,6 +259,25 @@ export default function EducationPage() {
         </div>}
         {!loading && courses.length === 0 && <p className="muted" style={{ padding: 16 }}>No visible courses in this project.</p>}
       </section>
+      {courseId && courses.find((course) => course.id === courseId)?.status !== "archived" && (
+        <section className="panel" style={{ marginBottom: 16 }}>
+          <div className="panel-head">COURSE DETAILS</div>
+          <div style={{ padding: 16 }}>
+            <label>Course title
+              <input className="field" aria-label="Edit course title" maxLength={160}
+                value={editCourseTitle} onChange={(e) => setEditCourseTitle(e.target.value)} />
+            </label>
+            <label>Description
+              <textarea className="field" aria-label="Edit course description" maxLength={10000}
+                value={editCourseDescription} onChange={(e) => setEditCourseDescription(e.target.value)}
+                rows={3} style={{ width: "100%" }} />
+            </label>
+            <button className="button" disabled={busy || !editCourseTitle.trim()}
+              onClick={() => void saveCourseDetails()}>Save course details</button>
+            {courseEditNotice && <p role="status">{courseEditNotice}</p>}
+          </div>
+        </section>
+      )}
       {courseId && <section className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head">ENROLL LEARNER</div>
         <div className="form-row" style={{ padding: 16, flexWrap: "wrap" }}>

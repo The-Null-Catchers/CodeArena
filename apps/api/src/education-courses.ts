@@ -46,6 +46,50 @@ export function registerEducationCourses(app: FastifyInstance) {
     });
   });
 
+  app.patch("/v1/education/courses/:courseId", async (req) => {
+    const courseId = uuid.parse((req.params as { courseId: string }).courseId);
+    const input = z.object({
+      title: z.string().trim().min(1).max(160).optional(),
+      description: z.string().max(10000).optional(),
+    }).strict().refine((value) => value.title !== undefined || value.description !== undefined,
+      "At least one field must be provided").parse(req.body);
+    const user = await actor(req);
+    if (!user.userId)
+      throw Object.assign(new Error("User session required"), { statusCode: 403 });
+    const course = (await pool.query(
+      "SELECT project_id FROM education_courses WHERE id=$1", [courseId],
+    )).rows[0];
+    if (!course)
+      throw Object.assign(new Error("Course not found"), { statusCode: 404 });
+    await authorize(user, course.project_id, "submissions:write", true);
+    return tx(async (client) => {
+      const existing = (await client.query(
+        "SELECT title,description,status FROM education_courses WHERE id=$1 FOR UPDATE", [courseId],
+      )).rows[0];
+      if (!existing)
+        throw Object.assign(new Error("Course not found"), { statusCode: 404 });
+      if (existing.status === "archived")
+        throw Object.assign(new Error("Archived course cannot be edited"), { statusCode: 409 });
+      const title = input.title ?? existing.title;
+      const description = input.description ?? existing.description;
+      if (title === existing.title && description === existing.description)
+        return (await client.query(
+          "SELECT id,project_id,title,description,status,created_at,updated_at FROM education_courses WHERE id=$1",
+          [courseId],
+        )).rows[0];
+      const updated = (await client.query(
+        `UPDATE education_courses SET title=$2,description=$3,updated_at=now()
+         WHERE id=$1 RETURNING id,project_id,title,description,status,created_at,updated_at`,
+        [courseId, title, description],
+      )).rows[0];
+      await audit(client, "education.course.update", user.userId!, courseId, {
+        titleChanged: title !== existing.title,
+        descriptionChanged: description !== existing.description,
+      });
+      return updated;
+    });
+  });
+
   app.post("/v1/education/courses", async (req, reply) => {
     const user = await actor(req);
     if (!user.userId)

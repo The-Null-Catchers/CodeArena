@@ -1,4 +1,5 @@
 import { limitedFetch } from "./http.js";
+import pg from "pg";
 import { beforeAll, describe, it, expect } from "vitest";
 const base = process.env.API_URL || "http://localhost:4000";
 let token = "",
@@ -112,10 +113,26 @@ describe("full API → scheduler → Docker flow", () => {
     );
     expect(r.submission.state).toBe("timed_out");
   });
-  it("cancels queued or running execution idempotently", async () => {
-    const id = await submit("while True:pass");
-    await request(`/v1/submissions/${id}/cancel`, {});
-    await request(`/v1/submissions/${id}/cancel`, {});
+  it("cancels a queued execution idempotently without a scheduling race", async () => {
+    // Shared IP rate limiting may delay cancel requests beyond the sandbox deadline.
+    // Hold the scheduler admission lock until both requests finish so this test
+    // proves queued cancellation regardless of CI load, not fortunate timing.
+    const db = new pg.Pool({
+      connectionString: process.env.DATABASE_URL ||
+        "postgresql://codearena:development-db-password@localhost:5432/codearena",
+    });
+    const lock = await db.connect();
+    let id = "";
+    try {
+      await lock.query("SELECT pg_advisory_lock(908302)");
+      id = await submit("while True:pass");
+      expect((await request(`/v1/submissions/${id}/cancel`, {})).status).toBe(200);
+      expect((await request(`/v1/submissions/${id}/cancel`, {})).status).toBe(200);
+    } finally {
+      await lock.query("SELECT pg_advisory_unlock(908302)");
+      lock.release();
+      await db.end();
+    }
     expect((await wait(id)).submission.state).toBe("cancelled");
   });
   it("does not disclose hidden input/output through final results or SSE", async () => {

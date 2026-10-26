@@ -112,6 +112,17 @@ describe("education course API authorization", () => {
     expect(learnerDraft.body.items).toEqual([]);
     const outsider = await request(path, tokens.outsider);
     expect(outsider.status).toBe(403);
+    const editPath = `/v1/education/courses/${courseId}`;
+    expect((await request(editPath, tokens.learner, "PATCH", { title: "Unauthorized" })).status).toBe(403);
+    expect((await request(editPath, tokens.outsider, "PATCH", { title: "Unauthorized" })).status).toBe(403);
+    expect((await request(editPath, tokens.owner, "PATCH", { title: " " })).status).toBe(400);
+    expect((await request(editPath, tokens.owner, "PATCH", {})).status).toBe(400);
+    const edited = await request(editPath, tokens.owner, "PATCH", {
+      title: "Updated algorithms", description: "Course introduction",
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body.title).toBe("Updated algorithms");
+    expect(edited.body.description).toBe("Course introduction");
     const statusPath = `/v1/education/courses/${courseId}/status`;
     expect((await request(statusPath, tokens.learner, "PATCH", { status: "published" })).status).toBe(403);
     expect((await request(statusPath, tokens.outsider, "PATCH", { status: "published" })).status).toBe(403);
@@ -210,6 +221,16 @@ describe("education course API authorization", () => {
       status: "published",
     });
     expect(reopen.status).toBe(409);
+    // Archiving an assignment must not implicitly archive its parent course.
+    // Explicitly archive the course before testing its edit immutability.
+    const archivedCourse = await request(`/v1/education/courses/${courseId}/status`,
+      tokens.owner, "PATCH", { status: "archived" });
+    expect(archivedCourse.status).toBe(200);
+    expect(archivedCourse.body.status).toBe("archived");
+    expect((await request(`/v1/education/courses/${courseId}`, tokens.owner, "PATCH",
+      { title: "Cannot edit archived" })).status).toBe(409);
+    expect((await request(`/v1/education/courses/${courseId}/status`,
+      tokens.owner, "PATCH", { status: "published" })).status).toBe(409);
   }, 60_000);
 
   it("links a scored challenge submission to an attempt and reflects instructor overrides", async () => {
