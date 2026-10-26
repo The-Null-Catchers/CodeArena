@@ -91,6 +91,7 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
     setStderr("");
     setResult(null);
     setEvents([]);
+    setId("");
     setState("created");
     started.current = Date.now();
     let admittedId = "";
