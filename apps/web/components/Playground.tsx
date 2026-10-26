@@ -93,6 +93,7 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
     setEvents([]);
     setState("created");
     started.current = Date.now();
+    let admittedId = "";
     try {
       const projects = await api("/v1/projects");
       if (!projects.items.length) throw new Error("Create a project first");
@@ -108,6 +109,7 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
           challengeId: mode === "challenge" ? challengeId : undefined,
         }),
       });
+      admittedId = submission.id;
       setId(submission.id);
       setState("queued");
       abort.current?.abort();
@@ -139,8 +141,24 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
       });
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
-        setError((e as Error).message);
-        setState("failed");
+        if (!admittedId) {
+          setError((e as Error).message);
+          setState("failed");
+        } else {
+          // A lost stream must never be displayed as a failed execution.
+          setError(`Live updates interrupted: ${(e as Error).message}`);
+          try {
+            const saved = await api(`/v1/submissions/${admittedId}`);
+            setState(saved.submission.state);
+            if (saved.result) {
+              setResult(saved.result);
+              setOutput(saved.result.stdout || "");
+              setStderr(saved.result.stderr || saved.result.compile_output || "");
+            }
+          } catch {
+            // Preserve the last known execution state and a navigable ID.
+          }
+        }
       }
     }
   };
@@ -317,7 +335,7 @@ export default function Playground({ challengeId }: { challengeId?: string }) {
       </div>
       {error && (
         <div className="error" role="alert">
-          {error} <a href="/login">Sign in</a>
+          {error} {id ? <a href={`/console/submissions/${id}`}>View submission details</a> : <a href="/login">Sign in</a>}
         </div>
       )}
       {events.length > 0 && (
