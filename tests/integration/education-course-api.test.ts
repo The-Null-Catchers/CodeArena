@@ -221,8 +221,16 @@ describe("education course API authorization", () => {
       status: "published",
     });
     expect(reopen.status).toBe(409);
+    // Archiving an assignment must not implicitly archive its parent course.
+    // Explicitly archive the course before testing its edit immutability.
+    const archivedCourse = await request(`/v1/education/courses/${courseId}/status`,
+      tokens.owner, "PATCH", { status: "archived" });
+    expect(archivedCourse.status).toBe(200);
+    expect(archivedCourse.body.status).toBe("archived");
     expect((await request(`/v1/education/courses/${courseId}`, tokens.owner, "PATCH",
       { title: "Cannot edit archived" })).status).toBe(409);
+    expect((await request(`/v1/education/courses/${courseId}/status`,
+      tokens.owner, "PATCH", { status: "published" })).status).toBe(409);
   }, 60_000);
 
   it("links a scored challenge submission to an attempt and reflects instructor overrides", async () => {
