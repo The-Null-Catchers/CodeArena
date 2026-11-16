@@ -66,3 +66,8 @@ Submission test captures and captured judge metadata reject mutation. Future cha
 Apply migration 005 with API, scheduler and workers stopped/drained; restart all control services on the new version. Workers resolve configured tags/digests to Docker content IDs at startup and advertise those IDs. Register at least one worker for each runtime before accepting new submissions. New snapshots retain their complete execution definition and never resolve the tag again.
 
 Retain images referenced by submissions on compatible worker hosts. Rebuilding a tag may produce a new ID; existing queued/retried submissions require the old ID and stay queued if no worker advertises it. To serve both versions, use distinct worker identities configured for their retained image. Existing completed jobs have no retroactive guarantee; legacy pending jobs bind their first upgraded claim explicitly. Separate architecture/host-kernel and supply-chain qualification remains required.
+
+
+## Browser execution stream recovery
+
+The playground reconnects its authenticated SSE stream after unexpected EOF, transient errors or rate limiting, with up to six capped exponential-backoff attempts. It reuses the last confirmed Redis event ID through `Last-Event-ID`, consumes an authoritative server snapshot on every connection and terminates on a persisted terminal state. Malformed or oversized frames are discarded or rejected; an aborted stream is not retried. If all attempts fail, the UI shows the last known state and links to the persisted submission rather than marking the execution as failed. The HTTP API remains authoritative for final results. Validate this path under real proxy disconnects before public launch.
