@@ -1,0 +1,235 @@
+{
+  "repository": "The-Null-Catchers/CodeArena",
+  "defaultBranch": "main",
+  "baseSHA": "45b92c85d4fea61b6f9f7e350e75819d02431779",
+  "backupTag": "cleanup-backup-2026-11-16",
+  "delete": [
+    {
+      "name": "feat/challenge-authoring-ui-scoring",
+      "sha": "b7dc7424167968d0ea2fe0b19fb8b256d6bc5146",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/challenge-group-scoring",
+      "sha": "0c3f570aaeadbd24189252b75db41296e9f5eac6",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/challenge-group-scoring-v2",
+      "sha": "0c3f570aaeadbd24189252b75db41296e9f5eac6",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/generated-artifact-capture-clean",
+      "sha": "053570e31d2c5c387f164a7dff14541c76b90259",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/interview-collaboration-adapter",
+      "sha": "9bf288d793a30b1cdcfb1952800d8612be1d795f",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/interview-collaboration-adapter-v2",
+      "sha": "9bf288d793a30b1cdcfb1952800d8612be1d795f",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/interview-collaboration-ops",
+      "sha": "9bf288d793a30b1cdcfb1952800d8612be1d795f",
+      "reason": "ancestor"
+    },
+    {
+      "name": "feat/interview-crdt-adapter",
+      "sha": "9bf288d793a30b1cdcfb1952800d8612be1d795f",
+      "reason": "ancestor"
+    },
+    {
+      "name": "ci/prevent-stale-workflow-runs",
+      "sha": "b9996ba376eae692b2ff7d7e9d6de5655bef9ef3",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/grafana-outbox-age-current",
+      "sha": "e343b915b2e1f3444f1a68be087ada425f12c7b5",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/grafana-scheduler-outbox-panels",
+      "sha": "3e8a610ab9f9de2a33f77725f8cda999be3e0844",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/grafana-scheduler-tick-failures",
+      "sha": "6bfc35a358726e8c7002955eac51272e13a680ba",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/grafana-scheduler-tick-p95",
+      "sha": "546d7416c6a376f5cabde8afbee03a98bbeada69",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/interview-op-client",
+      "sha": "3458e51156edf691bd497cbbb91e0f14d0a04f76",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/interview-participant-list",
+      "sha": "cb7dacc5b9aeecd2406cf17e1c8932a38398638d",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/interview-room-management-ui",
+      "sha": "c88afd097579ca6da517a324bd49eeb95f8d1410",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/scheduler-outbox-backlog-gauge",
+      "sha": "0e7555468fc644c9cc0e00aeb0d0a541fcf47fcb",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/scheduler-outbox-dispatch-metrics",
+      "sha": "ac04fd653c06256603b04d72e3df4e3feea00e0c",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/scheduler-outbox-oldest-age",
+      "sha": "f3d347a065daa2c0cad1e6ae90f2767c58641582",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/scheduler-tick-duration-metrics",
+      "sha": "f4c6e90eafb6ba7ae43cf557194ff32dfc7ff4f6",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/scheduler-tick-outcome-metrics",
+      "sha": "c13be756820900bf002fa074ca26937ffb4d5807",
+      "reason": "equivalent"
+    },
+    {
+      "name": "fix/redis-recovery",
+      "sha": "1ff4ec421c6eb0856173f93ab8c0474dfd42e9d4",
+      "reason": "equivalent"
+    },
+    {
+      "name": "fix/scheduler-isolate-outbox-dispatch-errors",
+      "sha": "ac0af943735406080541af8fbbfc43a61234871b",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/education-assignment-access",
+      "sha": "9ce70b680e98ed4623451a393da3c65f41fcb2f1",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/education-course-api-access",
+      "sha": "830e889fb19ffeb4f8e410918d02d5a53f084ef6",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/grafana-dashboard-panels",
+      "sha": "23621a0be3cd7e754ae8e3616c820dff1e350c04",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/grafana-panel-overlap",
+      "sha": "8a8e4698b41783c7b13b22ba861f90ed5f7bb826",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/grafana-scheduler-p95-panel",
+      "sha": "12f6fba4d66c028208ed7e29e6d29c1e6740a5d3",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/grafana-scheduler-tick-regression",
+      "sha": "95d4e6c44a388f2f6c7a65144f1955a0a2d2c5ea",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/interview-independent-edit-convergence",
+      "sha": "1c2cda0a0c82e6c087a96981fa2adc5f4cb6ab72",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/interview-multi-client-insert-order",
+      "sha": "7ec97304f54a04ce5815d82c373e263f1b225a96",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/interview-websocket-idempotent-retry",
+      "sha": "58d323adb45de4505ee5eb0ce08d52d2f7b8cc66",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/prometheus-alert-config-ci",
+      "sha": "a5f16c03b83b58a039b94bfda252b3ed70947351",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/scheduler-outbox-all-failed-recovery",
+      "sha": "f932ba2e7c8a06f6dc991326bac7dadd3cde0aae",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/scheduler-outbox-failure-reporting-counts",
+      "sha": "dbcd07a01dfa98bb78f72eedaa440f45292d52bb",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/scheduler-outbox-intermittent-recovery",
+      "sha": "1e129471bb5ce1ad410d1eb1168debfdfab86d0a",
+      "reason": "equivalent"
+    },
+    {
+      "name": "test/scheduler-outbox-recovery-after-failure",
+      "sha": "f7bc62cb55149bc987ed6cfe4463ae105979d8d6",
+      "reason": "equivalent"
+    },
+    {
+      "name": "feat/sse-browser-reconnect",
+      "sha": "fa9d1baf4fe56fed8c232abd617a288cb3cd12fa",
+      "reason": "tree-identical"
+    }
+  ],
+  "status": "Explicitly approved: archive before lease-guarded deletion",
+  "archiveParents": [
+    "b7dc7424167968d0ea2fe0b19fb8b256d6bc5146",
+    "0c3f570aaeadbd24189252b75db41296e9f5eac6",
+    "053570e31d2c5c387f164a7dff14541c76b90259",
+    "9bf288d793a30b1cdcfb1952800d8612be1d795f",
+    "b9996ba376eae692b2ff7d7e9d6de5655bef9ef3",
+    "e343b915b2e1f3444f1a68be087ada425f12c7b5",
+    "3e8a610ab9f9de2a33f77725f8cda999be3e0844",
+    "6bfc35a358726e8c7002955eac51272e13a680ba",
+    "546d7416c6a376f5cabde8afbee03a98bbeada69",
+    "3458e51156edf691bd497cbbb91e0f14d0a04f76",
+    "cb7dacc5b9aeecd2406cf17e1c8932a38398638d",
+    "c88afd097579ca6da517a324bd49eeb95f8d1410",
+    "0e7555468fc644c9cc0e00aeb0d0a541fcf47fcb",
+    "ac04fd653c06256603b04d72e3df4e3feea00e0c",
+    "f3d347a065daa2c0cad1e6ae90f2767c58641582",
+    "f4c6e90eafb6ba7ae43cf557194ff32dfc7ff4f6",
+    "c13be756820900bf002fa074ca26937ffb4d5807",
+    "1ff4ec421c6eb0856173f93ab8c0474dfd42e9d4",
+    "ac0af943735406080541af8fbbfc43a61234871b",
+    "9ce70b680e98ed4623451a393da3c65f41fcb2f1",
+    "830e889fb19ffeb4f8e410918d02d5a53f084ef6",
+    "23621a0be3cd7e754ae8e3616c820dff1e350c04",
+    "8a8e4698b41783c7b13b22ba861f90ed5f7bb826",
+    "12f6fba4d66c028208ed7e29e6d29c1e6740a5d3",
+    "95d4e6c44a388f2f6c7a65144f1955a0a2d2c5ea",
+    "1c2cda0a0c82e6c087a96981fa2adc5f4cb6ab72",
+    "7ec97304f54a04ce5815d82c373e263f1b225a96",
+    "58d323adb45de4505ee5eb0ce08d52d2f7b8cc66",
+    "a5f16c03b83b58a039b94bfda252b3ed70947351",
+    "f932ba2e7c8a06f6dc991326bac7dadd3cde0aae",
+    "dbcd07a01dfa98bb78f72eedaa440f45292d52bb",
+    "1e129471bb5ce1ad410d1eb1168debfdfab86d0a",
+    "f7bc62cb55149bc987ed6cfe4463ae105979d8d6",
+    "fa9d1baf4fe56fed8c232abd617a288cb3cd12fa"
+  ]
+}
