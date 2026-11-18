@@ -122,3 +122,7 @@ Docker limits memory/PIDs/CPU scheduling/filesystem. A worker deadline kills wal
 - [Contributing](CONTRIBUTING.md)
 
 Licensed under MIT.
+
+## Portfolio roadmap
+
+See the [repository-specific portfolio roadmap](PORTFOLIO_ROADMAP.md) for priorities, acceptance criteria, demo scope, and release evidence. This complements the existing implementation and status documentation.
