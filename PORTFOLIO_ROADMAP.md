@@ -1,46 +1,52 @@
-# CodeArena — خطة البورتفيليو
+# CodeArena portfolio roadmap
 
-مرجع التقييم الأساسي: 17 نوفمبر 2026. تحديث نشر الخطة داخل المستودع: 18 نوفمبر 2026.
+Baseline reviewed on November 17, 2026. Repository roadmap published on November 18, 2026.
 
-الخطة خاصة بهذا المستودع، ومستخلصة من خطة Null Catchers المشتركة. وصف «الموجود الموثق» يعكس المراجعة بتاريخها؛ تحقّق من الكود ووثائق الحالة الحالية قبل إنشاء مهمة جديدة. لا تعِد تنفيذ ميزة موجودة، ولا تعتبر وجود تعريف CI دليلًا على نجاح تشغيله.
+This roadmap applies to this repository and follows the shared Null Catchers portfolio plan. Verify the documented state against the current code and runs before starting work.
 
-**تقدير شريحة العرض الأولى:** 35–55 ساعة. التقدير تخطيطي لمطور يعرف المشروع، ويستثني انتظار حسابات المتاجر والمراجعات الخارجية وتجهيز بيئة الهدف. لا يغطي جميع بنود P2.
+**Estimated initial demo effort** 35–55 hours for a developer familiar with the project. The estimate excludes external reviews, store accounts, target environment setup, and later milestones.
 
-هذه خطة عرض وتطوير تكمل [خارطة التنفيذ الحالية](docs/ROADMAP.md)، ولا تستبدل حالات التنفيذ أو بوابات الأمان الواردة فيها.
+## Project priorities
 
-## الأولويات الخاصة بالمشروع
+**Documented state** Docker execution covers eight languages, scheduling, quotas, bounded output, judging, and collaboration rooms. Learner submission and server-side reconciliation after partial failure remain incomplete.
 
-**الموجود الموثق:** تنفيذ Docker حقيقي، ثماني لغات، scheduler وحصص ومخرجات محدودة وjudging وتعاون غرف. وثيقة ROADMAP تذكر أن ربط إرسال الطالب بالمحاولة وتسوية الفشل الجزئي يحتاجان استكمالًا؛ ليس كل مسار التعليم منتهيًا.
+**P0 — Demo** Complete the learner flow from attempt reservation through judging and grade display. Reconcile a completed execution if linking fails and retain the original attempt on retry. Validate the demo host before accepting external code.
 
-**P0 — نسخة العرض:** أكمل مسار الطالب: فتح assignment → حجز محاولة → إرسال الكود → ربط التنفيذ → النتيجة والدرجة. أضف reconciliation عندما ينجح التنفيذ ويفشل الربط، مع retry لا ينشئ محاولة جديدة. أعد qualification على مضيف العرض قبل قبول أي كود خارجي.
+**P1 — Validation and depth** Demonstrate Accepted, Wrong Answer, Time Limit, protected hidden test inputs, worker recovery, and browser reconnect in a collaboration room. Specify measurement conditions when reporting resource or queue results.
 
-**P1 — الدليل الهندسي:** جهز ثلاث حالات: Accepted وWrong Answer وTime Limit، وحالة لا تكشف hidden tests. سجل عاملًا يتوقف ثم يتعافى، وغرفة بمتصفحين ترسل تعديلات متزامنة ثم تعيد الاتصال. انشر resource/queue measurements بظروفها.
+**P2 — Later** Evaluate stronger isolation such as gVisor against host compatibility. Treat SQL judging as a separate feature and describe collaboration according to its actual guarantees.
 
-**P2 — لاحقًا:** stronger sandbox مثل gVisor بعد دراسة توافق المضيف، أو SQL judge كنطاق مستقل. لا تضف ثماني واجهات جديدة ولا تدّع أن التعاون الحالي CRDT.
+**Acceptance criteria** Grades match the linked execution, retries preserve the same attempt, hidden tests stay private, and worker interruption follows documented recovery behavior.
 
-**معيار الإنجاز:** درجة الطالب تطابق نتيجة التنفيذ المربوط، إعادة الطلب لا تضاعف المحاولة، المخرجات المخفية لا تتسرب، ونتيجة انقطاع العامل محفوظة أو قابلة للاستعادة ضمن السلوك المعلن.
+**Demo scenario** Publish a challenge → submit as a learner → see a timeout → submit a correct answer → review the gradebook. [ROADMAP](https://github.com/The-Null-Catchers/CodeArena/blob/main/docs/ROADMAP.md), [Verification](https://github.com/The-Null-Catchers/CodeArena/blob/main/docs/VERIFICATION.md).
 
-**الديمو:** مدرس ينشر مسألة → طالب يحل → timeout مفهوم → محاولة صحيحة → gradebook. **الأدلة:** [ROADMAP](https://github.com/The-Null-Catchers/CodeArena/blob/main/docs/ROADMAP.md)، [Verification](https://github.com/The-Null-Catchers/CodeArena/blob/main/docs/VERIFICATION.md).
+## Next milestones
 
-## بوابة قبول نسخة البورتفيليو
+The [product roadmap](docs/ROADMAP.md) documents attempt reservation, grades, and browser-side retry. Server-side reconciliation still needs an end-to-end check.
 
-- [ ] يستطيع شخص آخر تشغيل المسار الرئيسي من checkout نظيف، باتباع README، دون أسرار شخصية.
-- [ ] توجد قصة واحدة مكتملة: مستخدم محدد، مشكلة محددة، ومسار بداية إلى نتيجة محفوظة.
-- [ ] ينجح اختبار للمسار الرئيسي وحالة فشل مهمة، وتُختبر حدود الصلاحيات حيث توجد حسابات متعددة.
-- [ ] توجد بيانات عرض اصطناعية معلنة، قابلة لإعادة الإنشاء؛ ولا توجد بيانات عملاء أو أسرار في اللقطات.
-- [ ] توجد 4–6 لقطات حقيقية أو العدد الملائم للأداة، وفيديو 60–120 ثانية، وروابط تعمل. تُلتقط الأدلة من إصدار معروف.
-- [ ] README يوضح المزايا الفعلية، طريقة التشغيل، الرسم المعماري، القيود، وروابط الاختبارات والديمو.
-- [ ] Case study قصيرة تشرح قرارين هندسيين، بديلًا جرى استبعاده ولماذا، وفشلًا حقيقيًا وكيف يعالجه النظام.
-- [ ] صفحة Release تسجل SHA وCI والمتطلبات والقيود. لا تُنشر أرقام أداء دون workload وعتاد وطريقة قياس.
-- [ ] حُسمت سياسة الترخيص ونسب المساهمات قبل التوزيع؛ لا نختار ترخيصًا تلقائيًا لجميع المستودعات.
+1. [ ] Use a project-owned challenge and test submission. Confirm matching attempt IDs and scores for the learner and instructor.
+2. [ ] Simulate a link-save failure after the worker finishes. Retry the same request and verify that the original attempt gets one grade.
+3. [ ] Capture Accepted, Wrong Answer, and Time Limit with a SHA and worker log. Check that learner output keeps hidden grading inputs private.
 
-الديمو المستضاف مفيد وليس شرطًا لكل أداة. أدوات تنفيذ الكود وإدارة الخوادم والأسرار يمكن عرضها بفيديو وبيئة معزولة وتجربة محلية قابلة للإعادة. لا تفتح تنفيذًا عامًا غير محدود لمجرد وجود رابط بورتفيليو.
+## Portfolio acceptance checklist
 
-## التنفيذ والمتابعة
+- [ ] Another person can reproduce the primary workflow from a clean checkout using the README and test credentials or fixtures.
+- [ ] The demo tells one complete story with a defined user, problem, and saved result.
+- [ ] Tests cover the main flow, an important failure, and access boundaries when multiple accounts are involved.
+- [ ] Demo data is labeled synthetic and reproducible. Review screenshots and recordings for secrets and customer data.
+- [ ] Include four to six real screenshots where appropriate, a 60–120 second recording, and working links. Identify the revision used for capture.
+- [ ] The README describes implemented capabilities, setup, architecture, limits, tests, and the demo.
+- [ ] A short case study explains two engineering decisions, a considered alternative, and how the system handles an actual failure.
+- [ ] Release evidence records the commit SHA, CI, prerequisites, and limits. Performance data includes workload, hardware, and method.
+- [ ] Licensing and contributor attribution are settled before distribution. Choose the license for each repository individually.
 
-- حوّل P0 إلى مهام صغيرة، لكل منها سلوك متوقع ومعيار قبول واختبار مناسب.
-- ابدأ بتأكيد الموجود؛ عدّل هذه الخطة عندما يغلق بند بدليل مرتبط بcommit أو PR.
-- سجّل مصدر بيانات الديمو، والـSHA الذي التُقطت منه الأدلة، وحدود التجربة الفعلية.
-- راجع الفرق النهائي وانتظر نجاح الفحوص المطلوبة لنفس SHA قبل الدمج، مع احترام حماية الفرع.
-- إذا كان التعديل وثائق فقط ولا يوجد فحص ينطبق عليه، سجّل التحقق من محتواها وروابطها؛ لا تسجل اختبارات تشغيل لم تُنفّذ.
-- لا تُنشر أرقام أداء أو ادعاءات أمان أو جاهزية إنتاج بلا دليل مناسب.
+A hosted demo is optional. Code execution, server administration, and secret management can be demonstrated through a recording and a reproducible isolated environment. Keep public demo access scoped to the activities it needs.
+
+## Implementation and follow-up
+
+- Break P0 into tasks with expected behavior, acceptance criteria, and a suitable test.
+- Verify existing functionality first. Update this plan when evidence tied to a commit or PR closes a milestone.
+- Record the fixture source, the revision used for evidence, and the tested limits.
+- Review the final diff and verify required checks for its exact SHA before merging. Follow branch protection.
+- For documentation-only changes with no applicable workflow, verify content and links and record the checks actually performed.
+- Tie performance, security, and readiness claims to supporting evidence.
