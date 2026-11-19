@@ -326,6 +326,16 @@ describe("education course API authorization", () => {
     const retry = await request(linkPath, tokens.learner, "PUT", { submissionId });
     expect(retry.status).toBe(200);
     expect(retry.body.linked).toBe(false);
+    // A conflicting retry must not replace the originally graded submission.
+    const conflict = await request(linkPath, tokens.learner, "PUT", {
+      submissionId: crypto.randomUUID(),
+    });
+    expect(conflict.status).toBe(409);
+    const persistedLink = await db.query(
+      "SELECT submission_id FROM education_assignment_attempts WHERE id=$1",
+      [attemptId],
+    );
+    expect(persistedLink.rows[0].submission_id).toBe(submissionId);
     expect((await request(linkPath, tokens.owner, "PUT", { submissionId })).status).toBe(403);
     const own = await request(attemptsPath, tokens.learner);
     expect(own.status).toBe(200);
