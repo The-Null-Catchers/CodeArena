@@ -83,25 +83,10 @@ beforeAll(async () => {
     tokens[role] = await issueToken(ids[role]);
 });
 
+// CI destroys the disposable Compose database after the suite. Do not manually
+// delete worker-owned submissions while asynchronous audit/outbox references exist.
 afterAll(async () => {
-  try {
-    // Clean synthetic records only, including completed worker results.
-    if (courseId) await db.query("DELETE FROM education_courses WHERE id=$1", [courseId]);
-    if (submissionId) {
-      await db.query("DELETE FROM submission_results WHERE submission_id=$1", [submissionId]);
-      await db.query("DELETE FROM test_results WHERE submission_id=$1", [submissionId]);
-      await db.query("DELETE FROM submissions WHERE id=$1", [submissionId]);
-    }
-    if (challengeId) await db.query("DELETE FROM challenges WHERE id=$1", [challengeId]);
-    if (projectId) await db.query("DELETE FROM projects WHERE id=$1", [projectId]);
-    if (orgId) await db.query("DELETE FROM organizations WHERE id=$1", [orgId]);
-    const users = Object.values(ids);
-    await db.query("DELETE FROM audit_logs WHERE user_id=ANY($1::uuid[])", [users]);
-    await db.query("DELETE FROM sessions WHERE user_id=ANY($1::uuid[])", [users]);
-    await db.query("DELETE FROM users WHERE id=ANY($1::uuid[])", [users]);
-  } finally {
-    await db.end();
-  }
+  await db.end();
 });
 
 describe("education attempt with a real judging worker", () => {
